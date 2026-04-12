@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Указываем, что приложение использует GPS -->
     <uses-feature android:name="android.hardware.location.gps" />
 
@@ -25,6 +26,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- ДОБАВЬТЕ ЭТИ ДВЕ СТРОКИ: -->
+        <activity android:name=".MarkListActivity" />
+        <activity android:name=".EditMarkActivity" />
 
     </application>
 

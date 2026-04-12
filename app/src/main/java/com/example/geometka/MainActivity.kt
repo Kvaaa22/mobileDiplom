@@ -19,13 +19,14 @@ class MainActivity : Activity() {
     private lateinit var locationHelper: LocationHelper
     private lateinit var database: MarkDatabase
 
+    // UI элементы главного экрана
+    private lateinit var mainContentLayout: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var methodText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var getLocationButton: Button
-    private lateinit var viewMarksButton: Button
 
-    // Поля для ввода
+    // UI элементы формы
     private lateinit var formLayout: LinearLayout
     private lateinit var nameInput: EditText
     private lateinit var objectTypeSpinner: Spinner
@@ -40,23 +41,45 @@ class MainActivity : Activity() {
     private var currentLongitude: Double? = null
     private var currentProvider: String? = null
 
+    // Нижнее меню
+    private lateinit var bottomMenu: LinearLayout
+    private lateinit var homeMenuButton: LinearLayout
+    private lateinit var marksMenuButton: LinearLayout
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         locationHelper = LocationHelper(this)
         database = MarkDatabase(this)
 
-        val mainLayout = LinearLayout(this).apply {
+        val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(30, 30, 30, 30)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
         }
 
-        // Заголовок
-        val titleText = TextView(this).apply {
-            text = "🗺️ Geometka"
-            textSize = 24f
-            setTextColor(Color.WHITE)
+        // Главный контент (с прокруткой)
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f // занимает всё пространство кроме меню
+            )
+        }
+
+        mainContentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 60, 40, 40)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        scrollView.addView(mainContentLayout)
+
+        // === КОНТЕНТ ГЛАВНОГО ЭКРАНА ===
+
+        // Логотип
+        val logoText = TextView(this).apply {
+            text = "🗺️"
+            textSize = 64f
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -66,11 +89,25 @@ class MainActivity : Activity() {
             }
         }
 
+        val titleText = TextView(this).apply {
+            text = "Geometka"
+            textSize = 32f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 40
+            }
+        }
+
         // Информация о методе
         methodText = TextView(this).apply {
-            text = "Доступно: ${locationHelper.getAvailableMethods()}"
+            text = locationHelper.getAvailableMethods()
             textSize = 12f
-            setTextColor(Color.parseColor("#888888"))
+            setTextColor(Color.parseColor("#666666"))
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -90,7 +127,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 20
+                bottomMargin = 30
             }
         }
 
@@ -101,126 +138,35 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = 20
+                bottomMargin = 30
             }
         }
 
-        // Кнопка получения координат
-        getLocationButton = createStyledButton("📍 Получить координаты", "#2196F3")
+        // Главная кнопка
+        getLocationButton = createMainButton("📍 Получить координаты")
         getLocationButton.setOnClickListener {
             onGetLocationClick()
         }
 
-        // Форма (скрыта по умолчанию)
-        formLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#2A2A2A"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 30
-            }
-        }
+        // === ФОРМА (скрыта по умолчанию) ===
+        formLayout = createFormLayout()
 
-        // Название метки
-        formLayout.addView(createLabel("Название метки:"))
-        nameInput = EditText(this).apply {
-            hint = "Например: Старый дуб"
-            setHintTextColor(Color.parseColor("#666666"))
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 20, 20, 20)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
-            }
-        }
-        formLayout.addView(nameInput)
+        // Добавляем всё в контент
+        mainContentLayout.addView(logoText)
+        mainContentLayout.addView(titleText)
+        mainContentLayout.addView(methodText)
+        mainContentLayout.addView(statusText)
+        mainContentLayout.addView(progressBar)
+        mainContentLayout.addView(getLocationButton)
+        mainContentLayout.addView(formLayout)
 
-        // Тип объекта
-        formLayout.addView(createLabel("Тип объекта:"))
-        objectTypeSpinner = createSpinner(MarkConstants.OBJECT_TYPES)
-        formLayout.addView(objectTypeSpinner)
+        // === НИЖНЕЕ МЕНЮ ===
+        bottomMenu = createBottomMenu()
 
-        // Класс пожарной опасности
-        formLayout.addView(createLabel("Класс пожарной опасности:"))
-        fireHazardSpinner = createSpinner(MarkConstants.FIRE_HAZARD_CLASSES)
-        formLayout.addView(fireHazardSpinner)
+        rootLayout.addView(scrollView)
+        rootLayout.addView(bottomMenu)
 
-        // Доступность воды
-        formLayout.addView(createLabel("Доступность воды:"))
-        waterAvailabilitySpinner = createSpinner(MarkConstants.WATER_AVAILABILITY)
-        formLayout.addView(waterAvailabilitySpinner)
-
-        // Проходимость техники
-        formLayout.addView(createLabel("Проходимость техники:"))
-        vehiclePassabilitySpinner = createSpinner(MarkConstants.VEHICLE_PASSABILITY)
-        formLayout.addView(vehiclePassabilitySpinner)
-
-        // Дополнительные заметки
-        formLayout.addView(createLabel("Дополнительные заметки:"))
-        notesInput = EditText(this).apply {
-            hint = "Любая дополнительная информация"
-            setHintTextColor(Color.parseColor("#666666"))
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 20, 20, 20)
-            minLines = 3
-            maxLines = 5
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
-            }
-        }
-        formLayout.addView(notesInput)
-
-        // Кнопка сохранения
-        saveButton = createStyledButton("💾 Сохранить метку", "#4CAF50")
-        saveButton.setOnClickListener {
-            onSaveMarkClick()
-        }
-        formLayout.addView(saveButton)
-
-        // Кнопка просмотра меток
-        viewMarksButton = createStyledButton("📋 Мои метки (${database.getMarksCount()})", "#FF9800")
-        viewMarksButton.setOnClickListener {
-            val intent = Intent(this, MarkListActivity::class.java)
-            startActivity(intent)
-        }
-
-        // Добавляем все в главный layout
-        mainLayout.addView(titleText)
-        mainLayout.addView(methodText)
-        mainLayout.addView(statusText)
-        mainLayout.addView(progressBar)
-        mainLayout.addView(getLocationButton)
-        mainLayout.addView(formLayout)
-
-        val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-        mainLayout.addView(spacer)
-
-        mainLayout.addView(viewMarksButton)
-
-        // ScrollView для прокрутки
-        val scrollView = ScrollView(this).apply {
-            addView(mainLayout)
-        }
-
-        setContentView(scrollView)
+        setContentView(rootLayout)
 
         // Callbacks для LocationHelper
         locationHelper.onLocationReceived = { lat, lon, provider, isCached ->
@@ -240,18 +186,130 @@ class MainActivity : Activity() {
 
         checkPermissions()
         updateMethodInfo()
+        updateMenuSelection(true)
+    }
+
+    private fun createMainButton(text: String): Button {
+        val buttonBackground = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.parseColor("#2196F3"))
+            cornerRadius = 50f
+        }
+
+        return Button(this).apply {
+            this.text = text
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            background = buttonBackground
+            setPadding(80, 40, 80, 40)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 20
+                bottomMargin = 20
+            }
+        }
+    }
+
+    private fun createFormLayout(): LinearLayout {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 30, 0, 30)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val separator = View(this).apply {
+            setBackgroundColor(Color.parseColor("#333333"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                2
+            ).apply {
+                bottomMargin = 30
+            }
+        }
+        layout.addView(separator)
+
+        val formTitle = TextView(this).apply {
+            text = "✏️ Заполните данные метки"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 20
+            }
+        }
+        layout.addView(formTitle)
+
+        layout.addView(createLabel("Название метки:"))
+        nameInput = createEditText("", "Например: Старый дуб")
+        layout.addView(nameInput)
+
+        layout.addView(createLabel("Тип объекта:"))
+        objectTypeSpinner = createSpinner(MarkConstants.OBJECT_TYPES)
+        layout.addView(objectTypeSpinner)
+
+        layout.addView(createLabel("Класс пожарной опасности:"))
+        fireHazardSpinner = createSpinner(MarkConstants.FIRE_HAZARD_CLASSES)
+        layout.addView(fireHazardSpinner)
+
+        layout.addView(createLabel("Доступность воды:"))
+        waterAvailabilitySpinner = createSpinner(MarkConstants.WATER_AVAILABILITY)
+        layout.addView(waterAvailabilitySpinner)
+
+        layout.addView(createLabel("Проходимость техники:"))
+        vehiclePassabilitySpinner = createSpinner(MarkConstants.VEHICLE_PASSABILITY)
+        layout.addView(vehiclePassabilitySpinner)
+
+        layout.addView(createLabel("Дополнительные заметки:"))
+        notesInput = createEditText("", "Любая дополнительная информация", true)
+        layout.addView(notesInput)
+
+        saveButton = createSaveButton()
+        layout.addView(saveButton)
+
+        return layout
     }
 
     private fun createLabel(text: String): TextView {
         return TextView(this).apply {
             this.text = text
             textSize = 14f
-            setTextColor(Color.parseColor("#CCCCCC"))
+            setTextColor(Color.parseColor("#AAAAAA"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 10
+                bottomMargin = 8
+                topMargin = 10
+            }
+        }
+    }
+
+    private fun createEditText(value: String, hint: String, multiline: Boolean = false): EditText {
+        return EditText(this).apply {
+            setText(value)
+            this.hint = hint
+            setHintTextColor(Color.parseColor("#555555"))
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setPadding(20, 20, 20, 20)
+            if (multiline) {
+                minLines = 3
+                maxLines = 5
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 15
             }
         }
     }
@@ -265,20 +323,20 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            bottomMargin = 20
+            bottomMargin = 15
         }
         return spinner
     }
 
-    private fun createStyledButton(text: String, color: String): Button {
+    private fun createSaveButton(): Button {
         val buttonBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            setColor(Color.parseColor(color))
+            setColor(Color.parseColor("#4CAF50"))
             cornerRadius = 30f
         }
 
         return Button(this).apply {
-            this.text = text
+            text = "💾 Сохранить метку"
             textSize = 16f
             setTextColor(Color.WHITE)
             background = buttonBackground
@@ -287,29 +345,105 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                topMargin = 10
-                bottomMargin = 10
+                topMargin = 20
             }
+            setOnClickListener {
+                onSaveMarkClick()
+            }
+        }
+    }
+
+    private fun createBottomMenu(): LinearLayout {
+        val menuLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setPadding(0, 15, 0, 15)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        homeMenuButton = createMenuButton("🏠", "Главная", true)
+        homeMenuButton.setOnClickListener {
+            // Уже на главной
+        }
+
+        marksMenuButton = createMenuButton("📋", "Метки", false)
+        marksMenuButton.setOnClickListener {
+            val intent = Intent(this, MarkListActivity::class.java)
+            startActivity(intent)
+        }
+
+        menuLayout.addView(homeMenuButton)
+        menuLayout.addView(marksMenuButton)
+
+        return menuLayout
+    }
+
+    private fun createMenuButton(icon: String, label: String, selected: Boolean): LinearLayout {
+        val button = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(20, 10, 20, 10)
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+            isClickable = true
+            isFocusable = true
+        }
+
+        val iconText = TextView(this).apply {
+            text = icon
+            textSize = 24f
+            gravity = Gravity.CENTER
+        }
+
+        val labelText = TextView(this).apply {
+            text = label
+            textSize = 11f
+            setTextColor(if (selected) Color.parseColor("#2196F3") else Color.parseColor("#888888"))
+            gravity = Gravity.CENTER
+        }
+
+        button.addView(iconText)
+        button.addView(labelText)
+
+        return button
+    }
+
+    private fun updateMenuSelection(isHome: Boolean) {
+        val homeLabel = homeMenuButton.getChildAt(1) as TextView
+        val marksLabel = marksMenuButton.getChildAt(1) as TextView
+
+        if (isHome) {
+            homeLabel.setTextColor(Color.parseColor("#2196F3"))
+            marksLabel.setTextColor(Color.parseColor("#888888"))
+        } else {
+            homeLabel.setTextColor(Color.parseColor("#888888"))
+            marksLabel.setTextColor(Color.parseColor("#2196F3"))
         }
     }
 
     private fun getReadyStatus(): String {
         return if (locationHelper.hasInternetConnection()) {
-            "✓ Готов (с интернетом)"
+            "✓ Готов (быстрый режим)"
         } else {
-            "✓ Готов (без интернета - только GPS)"
+            "✓ Готов (GPS без сети)"
         }
     }
 
     private fun updateMethodInfo() {
-        methodText.text = "Доступно: ${locationHelper.getAvailableMethods()}"
+        methodText.text = locationHelper.getAvailableMethods()
 
         val hasInternet = locationHelper.hasInternetConnection()
         val hasGps = locationHelper.isGpsEnabled()
 
         statusText.text = when {
             hasGps && hasInternet -> "✓ Готов (быстрый режим)"
-            hasGps && !hasInternet -> "✓ Готов (медленный режим без сети)"
+            hasGps && !hasInternet -> "✓ Готов (GPS без сети)"
             else -> "⚠ GPS отключен"
         }
 
@@ -345,11 +479,13 @@ class MainActivity : Activity() {
     private fun showLoading() {
         progressBar.visibility = ProgressBar.VISIBLE
         getLocationButton.isEnabled = false
+        getLocationButton.alpha = 0.5f
     }
 
     private fun hideLoading() {
         progressBar.visibility = ProgressBar.GONE
         getLocationButton.isEnabled = true
+        getLocationButton.alpha = 1f
     }
 
     private fun onLocationReceived(latitude: Double, longitude: Double, provider: String, isCached: Boolean) {
@@ -357,19 +493,15 @@ class MainActivity : Activity() {
         currentLongitude = longitude
         currentProvider = provider
 
-        if (isCached) {
-            Toast.makeText(this, "⚠ Используются кэшированные координаты", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "✓ Координаты получены!", Toast.LENGTH_SHORT).show()
-        }
-
-        statusText.text = "✓ Координаты получены! Заполните форму ниже"
+        statusText.text = "✓ Координаты получены!"
         statusText.setTextColor(Color.parseColor("#4CAF50"))
+
+        Toast.makeText(this, "✓ Координаты получены!", Toast.LENGTH_SHORT).show()
 
         // Показываем форму
         formLayout.visibility = View.VISIBLE
 
-        // Автоматическое название с датой
+        // Автоматическое название
         val currentDate = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         nameInput.setText("Метка $currentDate")
@@ -411,12 +543,7 @@ class MainActivity : Activity() {
         val id = database.insertMark(mark)
 
         if (id > 0) {
-            Toast.makeText(this, "✓ Метка сохранена!", Toast.LENGTH_SHORT).show()
-
-            // Обновляем счетчик
-            viewMarksButton.text = "📋 Мои метки (${database.getMarksCount()})"
-
-            // Очищаем форму
+            Toast.makeText(this, "✓ Метка сохранена!", Toast.LENGTH_LONG).show()
             resetForm()
         } else {
             Toast.makeText(this, "✗ Ошибка сохранения", Toast.LENGTH_SHORT).show()
@@ -435,13 +562,13 @@ class MainActivity : Activity() {
         currentLongitude = null
         currentProvider = null
         statusText.text = getReadyStatus()
-        statusText.setTextColor(Color.parseColor("#4CAF50"))
+        updateMethodInfo()
     }
 
     private fun showGpsDisabledDialog() {
         val builder = android.app.AlertDialog.Builder(this)
         builder.setTitle("Геолокация отключена")
-        builder.setMessage("Для работы приложения необходимо включить GPS или Network. Открыть настройки?")
+        builder.setMessage("Включить GPS?")
         builder.setPositiveButton("Да") { _, _ ->
             startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
         }
@@ -459,10 +586,7 @@ class MainActivity : Activity() {
         if (requestCode == LocationHelper.LOCATION_PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 updateMethodInfo()
-                Toast.makeText(this, "Разрешение получено!", Toast.LENGTH_SHORT).show()
-            } else {
-                statusText.text = "✗ Разрешение отклонено"
-                statusText.setTextColor(Color.parseColor("#F44336"))
+                Toast.makeText(this, "✓ Разрешение получено!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -470,7 +594,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateMethodInfo()
-        viewMarksButton.text = "📋 Мои метки (${database.getMarksCount()})"
+        updateMenuSelection(true)
     }
 
     override fun onDestroy() {
