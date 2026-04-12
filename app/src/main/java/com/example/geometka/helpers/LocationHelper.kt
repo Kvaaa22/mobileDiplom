@@ -1,4 +1,4 @@
-package com.example.geometka
+package com.example.geometka.helpers
 
 import android.Manifest
 import android.app.Activity
