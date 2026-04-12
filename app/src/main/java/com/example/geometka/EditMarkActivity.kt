@@ -1,20 +1,17 @@
 package com.example.geometka
 
 import android.app.Activity
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.view.Gravity
 import android.view.View
 import android.widget.*
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkConstants
 import com.example.geometka.data.MarkDatabase
+import com.example.geometka.ui.UIHelper
 
 class EditMarkActivity : Activity() {
 
     private lateinit var database: MarkDatabase
-    private var markId: Long = -1
     private var mark: Mark? = null
 
     private lateinit var nameInput: EditText
@@ -28,7 +25,7 @@ class EditMarkActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         database = MarkDatabase(this)
-        markId = intent.getLongExtra("MARK_ID", -1)
+        val markId = intent.getLongExtra("MARK_ID", -1)
 
         if (markId == -1L) {
             Toast.makeText(this, "Ошибка загрузки метки", Toast.LENGTH_SHORT).show()
@@ -43,166 +40,73 @@ class EditMarkActivity : Activity() {
             return
         }
 
-        val mainLayout = LinearLayout(this).apply {
+        setContentView(createLayout())
+    }
+
+    private fun createLayout(): View {
+        val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setBackgroundColor(android.graphics.Color.parseColor(UIHelper.Colors.BACKGROUND))
         }
 
-        // Шапка
-        val headerLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#2A2A2A"))
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        rootLayout.addView(UIHelper.createHeader(this, "✏️ Редактирование") { finish() })
 
-        val backButton = Button(this).apply {
-            text = "← Назад"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnClickListener { finish() }
-        }
-
-        val titleText = TextView(this).apply {
-            text = "✏️ Редактирование"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            gravity = Gravity.CENTER
-        }
-
-        headerLayout.addView(backButton)
-        headerLayout.addView(titleText)
-        headerLayout.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(80, 0)
-        })
-
-        // Форма
         val formLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(30, 30, 30, 30)
         }
 
-        formLayout.addView(createLabel("Название метки:"))
-        nameInput = createEditText(mark!!.name)
+        val m = mark!!
+
+        formLayout.addView(UIHelper.createLabel(this, "Название метки:"))
+        nameInput = UIHelper.createEditText(this, value = m.name)
         formLayout.addView(nameInput)
 
-        formLayout.addView(createLabel("Координаты (только для просмотра):"))
-        val coordsText = TextView(this).apply {
-            text = mark!!.getFormattedCoordinates()
+        formLayout.addView(UIHelper.createLabel(this, "Координаты (только для просмотра):"))
+        formLayout.addView(TextView(this).apply {
+            text = m.getFormattedCoordinates()
             textSize = 14f
-            setTextColor(Color.parseColor("#888888"))
+            setTextColor(android.graphics.Color.parseColor(UIHelper.Colors.TEXT_DISABLED))
             setPadding(20, 10, 20, 20)
-        }
-        formLayout.addView(coordsText)
+        })
 
-        formLayout.addView(createLabel("Тип объекта:"))
-        objectTypeSpinner = createSpinner(MarkConstants.OBJECT_TYPES, mark!!.objectType)
+        formLayout.addView(UIHelper.createLabel(this, "Тип объекта:"))
+        objectTypeSpinner = createSpinnerWithSelection(MarkConstants.OBJECT_TYPES, m.objectType)
         formLayout.addView(objectTypeSpinner)
 
-        formLayout.addView(createLabel("Класс пожарной опасности:"))
-        fireHazardSpinner = createSpinner(MarkConstants.FIRE_HAZARD_CLASSES, mark!!.fireHazardClass)
+        formLayout.addView(UIHelper.createLabel(this, "Класс пожарной опасности:"))
+        fireHazardSpinner = createSpinnerWithSelection(MarkConstants.FIRE_HAZARD_CLASSES, m.fireHazardClass)
         formLayout.addView(fireHazardSpinner)
 
-        formLayout.addView(createLabel("Доступность воды:"))
-        waterAvailabilitySpinner = createSpinner(MarkConstants.WATER_AVAILABILITY, mark!!.waterAvailability)
+        formLayout.addView(UIHelper.createLabel(this, "Доступность воды:"))
+        waterAvailabilitySpinner = createSpinnerWithSelection(MarkConstants.WATER_AVAILABILITY, m.waterAvailability)
         formLayout.addView(waterAvailabilitySpinner)
 
-        formLayout.addView(createLabel("Проходимость техники:"))
-        vehiclePassabilitySpinner = createSpinner(MarkConstants.VEHICLE_PASSABILITY, mark!!.vehiclePassability)
+        formLayout.addView(UIHelper.createLabel(this, "Проходимость техники:"))
+        vehiclePassabilitySpinner = createSpinnerWithSelection(MarkConstants.VEHICLE_PASSABILITY, m.vehiclePassability)
         formLayout.addView(vehiclePassabilitySpinner)
 
-        formLayout.addView(createLabel("Дополнительные заметки:"))
-        notesInput = createEditText(mark!!.notes, multiline = true)
+        formLayout.addView(UIHelper.createLabel(this, "Дополнительные заметки:"))
+        notesInput = UIHelper.createEditText(this, value = m.notes, multiline = true)
         formLayout.addView(notesInput)
 
-        val saveButton = createStyledButton("💾 Сохранить изменения", "#4CAF50")
-        saveButton.setOnClickListener { saveChanges() }
-        formLayout.addView(saveButton)
+        formLayout.addView(UIHelper.createButton(this, "💾 Сохранить изменения", UIHelper.Colors.SUCCESS) {
+            saveChanges()
+        })
 
         val scrollView = ScrollView(this).apply {
             addView(formLayout)
         }
 
-        mainLayout.addView(headerLayout)
-        mainLayout.addView(scrollView)
-
-        setContentView(mainLayout)
+        rootLayout.addView(scrollView)
+        return rootLayout
     }
 
-    private fun createLabel(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 14f
-            setTextColor(Color.parseColor("#CCCCCC"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 10
-                topMargin = 10
-            }
-        }
-    }
-
-    private fun createEditText(value: String, multiline: Boolean = false): EditText {
-        return EditText(this).apply {
-            setText(value)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 20, 20, 20)
-            if (multiline) {
-                minLines = 3
-                maxLines = 5
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
-            }
-        }
-    }
-
-    private fun createSpinner(items: List<String>, selectedValue: String): Spinner {
-        val spinner = Spinner(this)
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, items)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spinner.adapter = adapter
-
+    private fun createSpinnerWithSelection(items: List<String>, selectedValue: String): Spinner {
+        val spinner = UIHelper.createSpinner(this, items)
         val position = items.indexOf(selectedValue)
         if (position >= 0) spinner.setSelection(position)
-
-        spinner.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            bottomMargin = 20
-        }
         return spinner
-    }
-
-    private fun createStyledButton(text: String, color: String): Button {
-        val buttonBackground = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.parseColor(color))
-            cornerRadius = 30f
-        }
-
-        return Button(this).apply {
-            this.text = text
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            background = buttonBackground
-            setPadding(60, 30, 60, 30)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 20
-            }
-        }
     }
 
     private fun saveChanges() {
@@ -221,8 +125,7 @@ class EditMarkActivity : Activity() {
             notes = notesInput.text.toString().trim()
         )
 
-        val result = database.updateMark(updatedMark)
-        if (result > 0) {
+        if (database.updateMark(updatedMark) > 0) {
             Toast.makeText(this, "✓ Изменения сохранены!", Toast.LENGTH_SHORT).show()
             finish()
         } else {
