@@ -27,7 +27,6 @@
             </intent-filter>
         </activity>
 
-        <!-- ДОБАВЬТЕ ЭТИ ДВЕ СТРОКИ: -->
         <activity android:name=".MarkListActivity" />
         <activity android:name=".EditMarkActivity" />
 

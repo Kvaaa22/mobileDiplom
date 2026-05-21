@@ -2,6 +2,7 @@ package com.example.geometka.data
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
@@ -9,7 +10,8 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
 
     companion object {
         private const val DATABASE_NAME = "geometka.db"
-        private const val DATABASE_VERSION = 1
+        // Увеличили версию с 1 на 2, чтобы сработало onUpgrade
+        private const val DATABASE_VERSION = 2
 
         private const val TABLE_MARKS = "marks"
 
@@ -17,13 +19,12 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
         private const val COLUMN_NAME = "name"
         private const val COLUMN_LATITUDE = "latitude"
         private const val COLUMN_LONGITUDE = "longitude"
-        private const val COLUMN_OBJECT_TYPE = "object_type"
-        private const val COLUMN_FIRE_HAZARD = "fire_hazard"
-        private const val COLUMN_WATER_AVAILABILITY = "water_availability"
-        private const val COLUMN_VEHICLE_PASSABILITY = "vehicle_passability"
+        private const val COLUMN_POINT_TYPE = "point_type"
+        private const val COLUMN_INTENSITY = "intensity"
+        private const val COLUMN_FIRE_TYPE = "type_of_fire"
         private const val COLUMN_NOTES = "notes"
         private const val COLUMN_CREATED_AT = "created_at"
-        private const val COLUMN_PROVIDER = "provider"
+        private const val COLUMN_ACCURACY = "horizontal_accuracy_meters"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -33,145 +34,97 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
                 $COLUMN_NAME TEXT NOT NULL,
                 $COLUMN_LATITUDE REAL NOT NULL,
                 $COLUMN_LONGITUDE REAL NOT NULL,
-                $COLUMN_OBJECT_TYPE TEXT NOT NULL,
-                $COLUMN_FIRE_HAZARD TEXT NOT NULL,
-                $COLUMN_WATER_AVAILABILITY TEXT NOT NULL,
-                $COLUMN_VEHICLE_PASSABILITY TEXT NOT NULL,
+                $COLUMN_POINT_TYPE TEXT NOT NULL,
+                $COLUMN_INTENSITY TEXT NOT NULL,
+                $COLUMN_FIRE_TYPE TEXT NOT NULL,
                 $COLUMN_NOTES TEXT,
                 $COLUMN_CREATED_AT INTEGER NOT NULL,
-                $COLUMN_PROVIDER TEXT
+                $COLUMN_ACCURACY REAL
             )
         """.trimIndent()
-
         db.execSQL(createTable)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // При любом обновлении версии сносим старую таблицу и создаем новую с верными колонками
         db.execSQL("DROP TABLE IF EXISTS $TABLE_MARKS")
         onCreate(db)
     }
 
-    // Добавить метку
     fun insertMark(mark: Mark): Long {
         val db = writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_NAME, mark.name)
             put(COLUMN_LATITUDE, mark.latitude)
             put(COLUMN_LONGITUDE, mark.longitude)
-            put(COLUMN_OBJECT_TYPE, mark.objectType)
-            put(COLUMN_FIRE_HAZARD, mark.fireHazardClass)
-            put(COLUMN_WATER_AVAILABILITY, mark.waterAvailability)
-            put(COLUMN_VEHICLE_PASSABILITY, mark.vehiclePassability)
+            put(COLUMN_POINT_TYPE, mark.pointType.name)
+            put(COLUMN_INTENSITY, mark.intensity.name)
+            put(COLUMN_FIRE_TYPE, mark.typeOfFire.name)
             put(COLUMN_NOTES, mark.notes)
             put(COLUMN_CREATED_AT, mark.createdAt)
-            put(COLUMN_PROVIDER, mark.provider)
+            put(COLUMN_ACCURACY, mark.horizontalAccuracyMeters)
         }
-
         return db.insert(TABLE_MARKS, null, values)
     }
 
-    // Получить все метки
     fun getAllMarks(): List<Mark> {
         val marks = mutableListOf<Mark>()
         val db = readableDatabase
-        val cursor = db.query(
-            TABLE_MARKS,
-            null,
-            null,
-            null,
-            null,
-            null,
-            "$COLUMN_CREATED_AT DESC"  // Сортировка по дате (новые первые)
-        )
+        val cursor = db.query(TABLE_MARKS, null, null, null, null, null, "$COLUMN_CREATED_AT DESC")
 
-        with(cursor) {
-            while (moveToNext()) {
-                val mark = Mark(
-                    id = getLong(getColumnIndexOrThrow(COLUMN_ID)),
-                    name = getString(getColumnIndexOrThrow(COLUMN_NAME)),
-                    latitude = getDouble(getColumnIndexOrThrow(COLUMN_LATITUDE)),
-                    longitude = getDouble(getColumnIndexOrThrow(COLUMN_LONGITUDE)),
-                    objectType = getString(getColumnIndexOrThrow(COLUMN_OBJECT_TYPE)),
-                    fireHazardClass = getString(getColumnIndexOrThrow(COLUMN_FIRE_HAZARD)),
-                    waterAvailability = getString(getColumnIndexOrThrow(COLUMN_WATER_AVAILABILITY)),
-                    vehiclePassability = getString(getColumnIndexOrThrow(COLUMN_VEHICLE_PASSABILITY)),
-                    notes = getString(getColumnIndexOrThrow(COLUMN_NOTES)) ?: "",
-                    createdAt = getLong(getColumnIndexOrThrow(COLUMN_CREATED_AT)),
-                    provider = getString(getColumnIndexOrThrow(COLUMN_PROVIDER)) ?: "unknown"
-                )
-                marks.add(mark)
+        cursor.use {
+            while (it.moveToNext()) {
+                marks.add(cursorToMark(it))
             }
         }
-        cursor.close()
-
         return marks
     }
 
-    // Получить метку по ID
     fun getMarkById(id: Long): Mark? {
         val db = readableDatabase
-        val cursor = db.query(
-            TABLE_MARKS,
-            null,
-            "$COLUMN_ID = ?",
-            arrayOf(id.toString()),
-            null,
-            null,
-            null
-        )
-
-        var mark: Mark? = null
-        if (cursor.moveToFirst()) {
-            mark = Mark(
-                id = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_ID)),
-                name = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NAME)),
-                latitude = cursor.getDouble(cursor.getColumnIndexOrThrow(COLUMN_LATITUDE)),
-                longitude = cursor.getDouble(cursor.getColumnIndexOrThrow(COLUMN_LONGITUDE)),
-                objectType = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_OBJECT_TYPE)),
-                fireHazardClass = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_FIRE_HAZARD)),
-                waterAvailability = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_WATER_AVAILABILITY)),
-                vehiclePassability = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_VEHICLE_PASSABILITY)),
-                notes = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NOTES)) ?: "",
-                createdAt = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_CREATED_AT)),
-                provider = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_PROVIDER)) ?: "unknown"
-            )
+        val cursor = db.query(TABLE_MARKS, null, "$COLUMN_ID = ?", arrayOf(id.toString()), null, null, null)
+        cursor.use {
+            return if (it.moveToFirst()) cursorToMark(it) else null
         }
-        cursor.close()
-
-        return mark
     }
 
-    // Обновить метку
+    private fun cursorToMark(cursor: Cursor): Mark {
+        return Mark(
+            id = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_ID)),
+            name = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NAME)),
+            latitude = cursor.getDouble(cursor.getColumnIndexOrThrow(COLUMN_LATITUDE)),
+            longitude = cursor.getDouble(cursor.getColumnIndexOrThrow(COLUMN_LONGITUDE)),
+            pointType = enumValueOrDefault(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_POINT_TYPE)), PointType.FRONT),
+            intensity = enumValueOrDefault(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_INTENSITY)), FireIntensity.LOW),
+            typeOfFire = enumValueOrDefault(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_FIRE_TYPE)), FireType.GROUND),
+            notes = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NOTES)),
+            createdAt = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_CREATED_AT)),
+            horizontalAccuracyMeters = if (cursor.isNull(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY))) null else cursor.getFloat(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY))
+        )
+    }
+
     fun updateMark(mark: Mark): Int {
         val db = writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_NAME, mark.name)
             put(COLUMN_LATITUDE, mark.latitude)
             put(COLUMN_LONGITUDE, mark.longitude)
-            put(COLUMN_OBJECT_TYPE, mark.objectType)
-            put(COLUMN_FIRE_HAZARD, mark.fireHazardClass)
-            put(COLUMN_WATER_AVAILABILITY, mark.waterAvailability)
-            put(COLUMN_VEHICLE_PASSABILITY, mark.vehiclePassability)
+            put(COLUMN_POINT_TYPE, mark.pointType.name)
+            put(COLUMN_INTENSITY, mark.intensity.name)
+            put(COLUMN_FIRE_TYPE, mark.typeOfFire.name)
             put(COLUMN_NOTES, mark.notes)
-            put(COLUMN_PROVIDER, mark.provider)
+            put(COLUMN_ACCURACY, mark.horizontalAccuracyMeters)
         }
-
         return db.update(TABLE_MARKS, values, "$COLUMN_ID = ?", arrayOf(mark.id.toString()))
     }
 
-    // Удалить метку
     fun deleteMark(id: Long): Int {
         val db = writableDatabase
         return db.delete(TABLE_MARKS, "$COLUMN_ID = ?", arrayOf(id.toString()))
     }
 
-    // Получить количество меток
-    fun getMarksCount(): Int {
-        val db = readableDatabase
-        val cursor = db.rawQuery("SELECT COUNT(*) FROM $TABLE_MARKS", null)
-        cursor.moveToFirst()
-        val count = cursor.getInt(0)
-        cursor.close()
-        return count
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String?, defaultValue: T): T {
+        if (value == null) return defaultValue
+        return try { enumValueOf<T>(value) } catch (e: Exception) { defaultValue }
     }
 }

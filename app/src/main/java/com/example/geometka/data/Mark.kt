@@ -8,13 +8,14 @@ data class Mark(
     val name: String,
     val latitude: Double,
     val longitude: Double,
-    val objectType: String,           // Тип объекта
-    val fireHazardClass: String,       // Класс пожарной опасности
-    val waterAvailability: String,     // Доступность воды
-    val vehiclePassability: String,    // Проходимость техники
-    val notes: String,                 // Дополнительные заметки
+
+    val pointType: PointType,
+    val intensity: FireIntensity,
+    val typeOfFire: FireType,
+
+    val notes: String?, // Дополнительные заметки
     val createdAt: Long = System.currentTimeMillis(),  // Время создания
-    val provider: String = "unknown"   // GPS/Network
+    val horizontalAccuracyMeters: Float?
 ) {
     // Форматированная дата
     fun getFormattedDate(): String {
@@ -29,36 +30,20 @@ data class Mark(
 }
 
 // Константы для выбора значений
-object MarkConstants {
-    val OBJECT_TYPES = listOf(
-        "🌳 Дерево",
-        "🌿 Куст",
-        "💧 Водоем",
-        "🌾 Опушка",
-        "🛣️ Дорога",
-        "🏚️ Строение",
-        "⚠️ Опасность",
-        "📍 Другое"
-    )
+enum class PointType(val label: String) {
+    FRONT("Фронт"),
+    FLANK("Фланг"),
+    REAR("Тыл")
+}
 
-    val FIRE_HAZARD_CLASSES = listOf(
-        "🟢 Низкий",
-        "🟡 Средний",
-        "🟠 Высокий",
-        "🔴 Критический"
-    )
+enum class FireIntensity(val label: String) {
+    LOW("Слабая"),
+    MEDIUM("Средняя"),
+    HIGH("Высокая")
+}
 
-    val WATER_AVAILABILITY = listOf(
-        "✅ Рядом (до 50м)",
-        "🟡 Средне (50-200м)",
-        "🔴 Далеко (>200м)",
-        "❌ Нет доступа"
-    )
-
-    val VEHICLE_PASSABILITY = listOf(
-        "✅ Легкая проходимость",
-        "🟡 Средняя проходимость",
-        "🟠 Тяжелая проходимость",
-        "❌ Непроходимо"
-    )
+enum class FireType(val label: String) {
+    GROUND("Низовой"),
+    CROWN("Верховой"),
+    PEAT("Торфяной")
 }

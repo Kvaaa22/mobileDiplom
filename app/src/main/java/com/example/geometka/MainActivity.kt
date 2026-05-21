@@ -8,11 +8,16 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import com.example.geometka.data.FireIntensity
+import com.example.geometka.data.FireType
 import com.example.geometka.data.Mark
-import com.example.geometka.data.MarkConstants
 import com.example.geometka.data.MarkDatabase
+import com.example.geometka.data.PointType
 import com.example.geometka.helpers.LocationHelper
 import com.example.geometka.ui.UIHelper
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
 
@@ -26,15 +31,14 @@ class MainActivity : Activity() {
     private lateinit var formLayout: LinearLayout
 
     private lateinit var nameInput: EditText
-    private lateinit var objectTypeSpinner: Spinner
-    private lateinit var fireHazardSpinner: Spinner
-    private lateinit var waterAvailabilitySpinner: Spinner
-    private lateinit var vehiclePassabilitySpinner: Spinner
+    private lateinit var pointTypeSpinner: Spinner
+    private lateinit var intensitySpinner: Spinner
+    private lateinit var typeOfFireSpinner: Spinner
     private lateinit var notesInput: EditText
 
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
-    private var currentProvider: String? = null
+    private var currentHorizontalAccuracyMeters: Float? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,7 +60,9 @@ class MainActivity : Activity() {
 
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
             )
         }
 
@@ -66,11 +72,9 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
         }
 
-        // Логотип и заголовок
         contentLayout.addView(createLogo())
         contentLayout.addView(createTitle())
 
-        // Статус
         methodText = createMethodText()
         statusText = createStatusText()
         progressBar = createProgressBar()
@@ -79,13 +83,11 @@ class MainActivity : Activity() {
         contentLayout.addView(statusText)
         contentLayout.addView(progressBar)
 
-        // Главная кнопка
         getLocationButton = UIHelper.createMainButton(this, "📍 Получить координаты") {
             onGetLocationClick()
         }
         contentLayout.addView(getLocationButton)
 
-        // Форма
         formLayout = createForm()
         contentLayout.addView(formLayout)
 
@@ -103,11 +105,13 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = 20 }
+        ).apply {
+            bottomMargin = 20
+        }
     }
 
     private fun createTitle() = TextView(this).apply {
-        text = "Geometka"
+        text = "Лесная разведка"
         textSize = 32f
         setTextColor(Color.WHITE)
         gravity = Gravity.CENTER
@@ -115,7 +119,9 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = 40 }
+        ).apply {
+            bottomMargin = 40
+        }
     }
 
     private fun createMethodText() = TextView(this).apply {
@@ -125,7 +131,9 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = 10 }
+        ).apply {
+            bottomMargin = 10
+        }
     }
 
     private fun createStatusText() = TextView(this).apply {
@@ -135,7 +143,9 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = 30 }
+        ).apply {
+            bottomMargin = 30
+        }
     }
 
     private fun createProgressBar() = ProgressBar(this).apply {
@@ -143,7 +153,9 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = 30 }
+        ).apply {
+            bottomMargin = 30
+        }
     }
 
     private fun createForm(): LinearLayout {
@@ -163,36 +175,53 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 20 }
+            ).apply {
+                bottomMargin = 20
+            }
         })
 
         layout.addView(UIHelper.createLabel(this, "Название метки:"))
-        nameInput = UIHelper.createEditText(this, hint = "Например: Старый дуб")
+        nameInput = UIHelper.createEditText(this, hint = "Например: Точка кромки пожара")
         layout.addView(nameInput)
 
-        layout.addView(UIHelper.createLabel(this, "Тип объекта:"))
-        objectTypeSpinner = UIHelper.createSpinner(this, MarkConstants.OBJECT_TYPES)
-        layout.addView(objectTypeSpinner)
+        layout.addView(UIHelper.createLabel(this, "Положение точки:"))
+        pointTypeSpinner = UIHelper.createSpinner(
+            this,
+            PointType.entries.map { it.label }
+        )
+        layout.addView(pointTypeSpinner)
 
-        layout.addView(UIHelper.createLabel(this, "Класс пожарной опасности:"))
-        fireHazardSpinner = UIHelper.createSpinner(this, MarkConstants.FIRE_HAZARD_CLASSES)
-        layout.addView(fireHazardSpinner)
+        layout.addView(UIHelper.createLabel(this, "Интенсивность горения:"))
+        intensitySpinner = UIHelper.createSpinner(
+            this,
+            FireIntensity.entries.map { it.label }
+        )
+        layout.addView(intensitySpinner)
 
-        layout.addView(UIHelper.createLabel(this, "Доступность воды:"))
-        waterAvailabilitySpinner = UIHelper.createSpinner(this, MarkConstants.WATER_AVAILABILITY)
-        layout.addView(waterAvailabilitySpinner)
-
-        layout.addView(UIHelper.createLabel(this, "Проходимость техники:"))
-        vehiclePassabilitySpinner = UIHelper.createSpinner(this, MarkConstants.VEHICLE_PASSABILITY)
-        layout.addView(vehiclePassabilitySpinner)
+        layout.addView(UIHelper.createLabel(this, "Тип пожара:"))
+        typeOfFireSpinner = UIHelper.createSpinner(
+            this,
+            FireType.entries.map { it.label }
+        )
+        layout.addView(typeOfFireSpinner)
 
         layout.addView(UIHelper.createLabel(this, "Дополнительные заметки:"))
-        notesInput = UIHelper.createEditText(this, hint = "Любая дополнительная информация", multiline = true)
+        notesInput = UIHelper.createEditText(
+            this,
+            hint = "Любая дополнительная информация",
+            multiline = true
+        )
         layout.addView(notesInput)
 
-        layout.addView(UIHelper.createButton(this, "💾 Сохранить метку", UIHelper.Colors.SUCCESS) {
-            onSaveMarkClick()
-        })
+        layout.addView(
+            UIHelper.createButton(
+                this,
+                "💾 Сохранить метку",
+                UIHelper.Colors.SUCCESS
+            ) {
+                onSaveMarkClick()
+            }
+        )
 
         return layout
     }
@@ -216,9 +245,9 @@ class MainActivity : Activity() {
     }
 
     private fun setupCallbacks() {
-        locationHelper.onLocationReceived = { lat, lon, provider, _ ->
+        locationHelper.onLocationReceived = { lat, lon, _, accuracy ->
             hideLoading()
-            onLocationReceived(lat, lon, provider)
+            onLocationReceived(lat, lon, accuracy)
         }
 
         locationHelper.onLocationError = { message ->
@@ -234,6 +263,7 @@ class MainActivity : Activity() {
 
     private fun updateMethodInfo() {
         methodText.text = locationHelper.getAvailableMethods()
+
         val hasInternet = locationHelper.hasInternetConnection()
         val hasGps = locationHelper.isGpsEnabled()
 
@@ -243,11 +273,15 @@ class MainActivity : Activity() {
             else -> "⚠ GPS отключен"
         }
 
-        statusText.setTextColor(Color.parseColor(when {
-            hasGps && hasInternet -> UIHelper.Colors.SUCCESS
-            hasGps && !hasInternet -> UIHelper.Colors.WARNING
-            else -> UIHelper.Colors.DANGER
-        }))
+        statusText.setTextColor(
+            Color.parseColor(
+                when {
+                    hasGps && hasInternet -> UIHelper.Colors.SUCCESS
+                    hasGps && !hasInternet -> UIHelper.Colors.WARNING
+                    else -> UIHelper.Colors.DANGER
+                }
+            )
+        )
     }
 
     private fun checkPermissions() {
@@ -284,19 +318,29 @@ class MainActivity : Activity() {
         getLocationButton.alpha = 1f
     }
 
-    private fun onLocationReceived(lat: Double, lon: Double, provider: String) {
+    private fun onLocationReceived(
+        lat: Double,
+        lon: Double,
+        horizontalAccuracyMeters: Float?
+    ) {
         currentLatitude = lat
         currentLongitude = lon
-        currentProvider = provider
+        currentHorizontalAccuracyMeters = horizontalAccuracyMeters
 
-        statusText.text = "✓ Координаты получены!"
+        val accuracyText = horizontalAccuracyMeters?.let {
+            " Точность: %.1f м".format(it)
+        } ?: ""
+
+        statusText.text = "✓ Координаты получены!$accuracyText"
         statusText.setTextColor(Color.parseColor(UIHelper.Colors.SUCCESS))
+
         Toast.makeText(this, "✓ Координаты получены!", Toast.LENGTH_SHORT).show()
 
         formLayout.visibility = View.VISIBLE
 
-        val date = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
-            .format(java.util.Date())
+        val date = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+            .format(Date())
+
         nameInput.setText("Метка $date")
     }
 
@@ -311,7 +355,11 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Сначала получите координаты!", Toast.LENGTH_SHORT).show()
             return
         }
-        val lon = currentLongitude ?: return
+
+        val lon = currentLongitude ?: run {
+            Toast.makeText(this, "Сначала получите координаты!", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         val name = nameInput.text.toString().trim()
         if (name.isEmpty()) {
@@ -323,12 +371,11 @@ class MainActivity : Activity() {
             name = name,
             latitude = lat,
             longitude = lon,
-            objectType = objectTypeSpinner.selectedItem.toString(),
-            fireHazardClass = fireHazardSpinner.selectedItem.toString(),
-            waterAvailability = waterAvailabilitySpinner.selectedItem.toString(),
-            vehiclePassability = vehiclePassabilitySpinner.selectedItem.toString(),
-            notes = notesInput.text.toString().trim(),
-            provider = currentProvider ?: "unknown"
+            pointType = PointType.entries[pointTypeSpinner.selectedItemPosition],
+            intensity = FireIntensity.entries[intensitySpinner.selectedItemPosition],
+            typeOfFire = FireType.entries[typeOfFireSpinner.selectedItemPosition],
+            notes = notesInput.text.toString().trim().ifEmpty { null },
+            horizontalAccuracyMeters = currentHorizontalAccuracyMeters
         )
 
         if (database.insertMark(mark) > 0) {
@@ -341,15 +388,18 @@ class MainActivity : Activity() {
 
     private fun resetForm() {
         formLayout.visibility = View.GONE
+
         nameInput.setText("")
         notesInput.setText("")
-        objectTypeSpinner.setSelection(0)
-        fireHazardSpinner.setSelection(0)
-        waterAvailabilitySpinner.setSelection(0)
-        vehiclePassabilitySpinner.setSelection(0)
+
+        pointTypeSpinner.setSelection(0)
+        intensitySpinner.setSelection(0)
+        typeOfFireSpinner.setSelection(0)
+
         currentLatitude = null
         currentLongitude = null
-        currentProvider = null
+        currentHorizontalAccuracyMeters = null
+
         updateMethodInfo()
     }
 
@@ -364,10 +414,18 @@ class MainActivity : Activity() {
             .show()
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
         if (requestCode == LocationHelper.LOCATION_PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (
+                grantResults.isNotEmpty() &&
+                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
                 updateMethodInfo()
                 Toast.makeText(this, "✓ Разрешение получено!", Toast.LENGTH_SHORT).show()
             }

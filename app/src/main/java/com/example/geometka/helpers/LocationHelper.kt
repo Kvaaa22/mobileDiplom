@@ -29,7 +29,7 @@ class LocationHelper(private val context: Context) {
     private var timeoutRunnable: Runnable? = null
 
     // Callbacks
-    var onLocationReceived: ((latitude: Double, longitude: Double, provider: String, isCached: Boolean) -> Unit)? = null
+    var onLocationReceived: ((latitude: Double, longitude: Double, provider: String, accuracy: Float?) -> Unit)? = null
     var onLocationError: ((message: String) -> Unit)? = null
     var onStatusUpdate: ((message: String) -> Unit)? = null
 
@@ -119,7 +119,7 @@ class LocationHelper(private val context: Context) {
                         lastLocation.latitude,
                         lastLocation.longitude,
                         lastLocation.provider ?: "unknown",
-                        true  // это кэш!
+                        lastLocation.accuracy
                     )
                     return
                 }
@@ -176,7 +176,7 @@ class LocationHelper(private val context: Context) {
                     location.latitude,
                     location.longitude,
                     location.provider ?: "unknown",
-                    false  // это НЕ кэш, свежие данные!
+                    location.accuracy
                 )
                 stopLocationUpdates()
             }

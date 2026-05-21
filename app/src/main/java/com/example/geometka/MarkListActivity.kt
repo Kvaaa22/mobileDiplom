@@ -109,16 +109,16 @@ class MarkListActivity : Activity() {
                 setPadding(0, 0, 0, 10)
             })
 
-            // Параметры
+            // Параметры пожара
             addView(TextView(this@MarkListActivity).apply {
-                text = "${mark.objectType}\n${mark.fireHazardClass}\n${mark.waterAvailability}\n${mark.vehiclePassability}"
+                text = "Часть: ${mark.pointType.label}\nИнтенсивность: ${mark.intensity.label}\nВид: ${mark.typeOfFire.label}"
                 textSize = 13f
                 setTextColor(Color.parseColor("#CCCCCC"))
                 setPadding(0, 0, 0, 10)
             })
 
             // Заметки
-            if (mark.notes.isNotEmpty()) {
+            if (!mark.notes.isNullOrEmpty()) {
                 addView(TextView(this@MarkListActivity).apply {
                     text = "💬 ${mark.notes}"
                     textSize = 12f

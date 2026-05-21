@@ -4,9 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.view.View
 import android.widget.*
-import com.example.geometka.data.Mark
-import com.example.geometka.data.MarkConstants
-import com.example.geometka.data.MarkDatabase
+import com.example.geometka.data.*
 import com.example.geometka.ui.UIHelper
 
 class EditMarkActivity : Activity() {
@@ -15,10 +13,9 @@ class EditMarkActivity : Activity() {
     private var mark: Mark? = null
 
     private lateinit var nameInput: EditText
-    private lateinit var objectTypeSpinner: Spinner
-    private lateinit var fireHazardSpinner: Spinner
-    private lateinit var waterAvailabilitySpinner: Spinner
-    private lateinit var vehiclePassabilitySpinner: Spinner
+    private lateinit var pointTypeSpinner: Spinner
+    private lateinit var intensitySpinner: Spinner
+    private lateinit var typeOfFireSpinner: Spinner
     private lateinit var notesInput: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,24 +67,23 @@ class EditMarkActivity : Activity() {
             setPadding(20, 10, 20, 20)
         })
 
-        formLayout.addView(UIHelper.createLabel(this, "Тип объекта:"))
-        objectTypeSpinner = createSpinnerWithSelection(MarkConstants.OBJECT_TYPES, m.objectType)
-        formLayout.addView(objectTypeSpinner)
+        formLayout.addView(UIHelper.createLabel(this, "Часть пожара:"))
+        val pointTypes = PointType.values().map { it.label }
+        pointTypeSpinner = createSpinnerWithSelection(pointTypes, m.pointType.label)
+        formLayout.addView(pointTypeSpinner)
 
-        formLayout.addView(UIHelper.createLabel(this, "Класс пожарной опасности:"))
-        fireHazardSpinner = createSpinnerWithSelection(MarkConstants.FIRE_HAZARD_CLASSES, m.fireHazardClass)
-        formLayout.addView(fireHazardSpinner)
+        formLayout.addView(UIHelper.createLabel(this, "Интенсивность:"))
+        val intensities = FireIntensity.values().map { it.label }
+        intensitySpinner = createSpinnerWithSelection(intensities, m.intensity.label)
+        formLayout.addView(intensitySpinner)
 
-        formLayout.addView(UIHelper.createLabel(this, "Доступность воды:"))
-        waterAvailabilitySpinner = createSpinnerWithSelection(MarkConstants.WATER_AVAILABILITY, m.waterAvailability)
-        formLayout.addView(waterAvailabilitySpinner)
-
-        formLayout.addView(UIHelper.createLabel(this, "Проходимость техники:"))
-        vehiclePassabilitySpinner = createSpinnerWithSelection(MarkConstants.VEHICLE_PASSABILITY, m.vehiclePassability)
-        formLayout.addView(vehiclePassabilitySpinner)
+        formLayout.addView(UIHelper.createLabel(this, "Вид пожара:"))
+        val fireTypes = FireType.values().map { it.label }
+        typeOfFireSpinner = createSpinnerWithSelection(fireTypes, m.typeOfFire.label)
+        formLayout.addView(typeOfFireSpinner)
 
         formLayout.addView(UIHelper.createLabel(this, "Дополнительные заметки:"))
-        notesInput = UIHelper.createEditText(this, value = m.notes, multiline = true)
+        notesInput = UIHelper.createEditText(this, value = m.notes ?: "", multiline = true)
         formLayout.addView(notesInput)
 
         formLayout.addView(UIHelper.createButton(this, "💾 Сохранить изменения", UIHelper.Colors.SUCCESS) {
@@ -118,10 +114,9 @@ class EditMarkActivity : Activity() {
 
         val updatedMark = mark!!.copy(
             name = name,
-            objectType = objectTypeSpinner.selectedItem.toString(),
-            fireHazardClass = fireHazardSpinner.selectedItem.toString(),
-            waterAvailability = waterAvailabilitySpinner.selectedItem.toString(),
-            vehiclePassability = vehiclePassabilitySpinner.selectedItem.toString(),
+            pointType = PointType.values().find { it.label == pointTypeSpinner.selectedItem.toString() } ?: PointType.FRONT,
+            intensity = FireIntensity.values().find { it.label == intensitySpinner.selectedItem.toString() } ?: FireIntensity.LOW,
+            typeOfFire = FireType.values().find { it.label == typeOfFireSpinner.selectedItem.toString() } ?: FireType.GROUND,
             notes = notesInput.text.toString().trim()
         )
 
