@@ -125,28 +125,10 @@ class MarkListActivity : Activity() {
         titleBlock.addView(title)
         titleBlock.addView(localCountText)
 
-        val menuButton = TextView(this).apply {
-            text = "≡"
-            textSize = 22f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = circleDrawable("#2B7A46")
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
-            setOnClickListener {
-                Toast.makeText(
-                    this@MarkListActivity,
-                    "Меню пока не настроено",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-
         topRow.addView(titleBlock, LinearLayout.LayoutParams(
-            0,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            1f
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
         ))
-        topRow.addView(menuButton)
 
         header.addView(topRow)
 
@@ -360,13 +342,17 @@ class MarkListActivity : Activity() {
             setPadding(0, dp(7), 0, dp(8))
         }
 
-        nav.addView(createNavItem("⌖", "Карта", selected = false) {
+        nav.addView(createNavItem("🗺", "Карта", selected = false) {
+            // Действие убрано
+        })
+
+        nav.addView(createNavItem("⌖", "Новая точка", selected = false) {
             startActivity(Intent(this, MainActivity::class.java))
             finish()
         })
 
         nav.addView(createNavItem("●", "Точки", selected = true) {
-            // Уже здесь. Удивительно, но кнопка ничего не должна ломать.
+            // Уже здесь
         })
 
         nav.addView(createNavItem("⇄", "Синхр.", selected = false) {

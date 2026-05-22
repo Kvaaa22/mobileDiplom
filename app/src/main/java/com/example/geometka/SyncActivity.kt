@@ -451,7 +451,11 @@ class SyncActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             setPadding(0, dp(7), 0, dp(8))
 
-            addView(createMenuItem("⌖", "Карта", selected = false) {
+            addView(createMenuItem("🗺", "Карта", selected = false) {
+                // Действие убрано
+            })
+
+            addView(createMenuItem("⌖", "Новая точка", selected = false) {
                 startActivity(Intent(this@SyncActivity, MainActivity::class.java))
                 finish()
             })
