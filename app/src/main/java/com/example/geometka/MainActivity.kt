@@ -17,6 +17,19 @@ import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.PointType
 import com.example.geometka.helpers.LocationHelper
+import com.example.geometka.maps.MapAvailability
+import com.example.geometka.maps.MapDownloadScheduler
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.MapTileProviderArray
+import org.osmdroid.tileprovider.modules.ArchiveFileFactory
+import org.osmdroid.tileprovider.modules.IArchiveFile
+import org.osmdroid.tileprovider.modules.MapTileFileArchiveProvider
+import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.tileprovider.util.SimpleRegisterReceiver
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -26,27 +39,16 @@ class MainActivity : Activity() {
     private lateinit var locationHelper: LocationHelper
     private lateinit var database: MarkDatabase
 
-    private lateinit var statusText: TextView
-    private lateinit var methodText: TextView
+    private lateinit var subtitleText: TextView
+    private lateinit var addCardSubtitle: TextView
+    private lateinit var mapContainer: FrameLayout
     private lateinit var progressBar: ProgressBar
-    private lateinit var getLocationButton: Button
-    private lateinit var formLayout: LinearLayout
-    private lateinit var accuracyWarningText: TextView
 
-    private lateinit var notesInput: EditText
-
-    private val pointTypeChipViews = mutableMapOf<PointType, TextView>()
-    private val intensityChipViews = mutableMapOf<FireIntensity, TextView>()
-    private val fireTypeChipViews = mutableMapOf<FireType, TextView>()
-
-    private var selectedPointType: PointType = PointType.FRONT
-    private var selectedIntensity: FireIntensity = FireIntensity.MEDIUM
-    private var selectedFireType: FireType = FireType.GROUND
+    private var mapView: MapView? = null
 
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
     private var currentHorizontalAccuracyMeters: Float? = null
-    private var currentAutoName: String = ""
 
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
@@ -58,8 +60,8 @@ class MainActivity : Activity() {
         const val TEXT_PRIMARY = "#1F2A22"
         const val TEXT_SECONDARY = "#6F7D73"
         const val TEXT_MUTED = "#9AA69E"
-        const val WARNING_BG = "#FFF0D2"
-        const val WARNING_TEXT = "#D94324"
+        const val RED = "#D73620"
+        const val MAP_PLACEHOLDER = "#DCEAD7"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,24 +71,34 @@ class MainActivity : Activity() {
         window.navigationBarColor = Color.WHITE
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
 
+        Configuration.getInstance().load(
+            this,
+            getSharedPreferences("osmdroid", MODE_PRIVATE)
+        )
+        Configuration.getInstance().userAgentValue = packageName
+
         locationHelper = LocationHelper(this)
         database = MarkDatabase(this)
 
-        setContentView(createMainLayout())
+        MapDownloadScheduler.startAutomaticDownloads(this)
+
+        setContentView(createLayout())
         setupCallbacks()
         checkPermissions()
-        updateMethodInfo()
+        refreshMapScreen()
     }
 
-    private fun createMainLayout(): View {
-        val rootLayout = LinearLayout(this).apply {
+    private fun createLayout(): View {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor(Colors.BACKGROUND))
         }
 
-        rootLayout.addView(createHeader())
+        root.addView(createHeader())
 
-        val scrollView = ScrollView(this).apply {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -94,171 +106,342 @@ class MainActivity : Activity() {
             )
         }
 
-        val contentLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(14))
-        }
+        content.addView(createMapBlock())
+        content.addView(createAddPointBlock())
 
-        contentLayout.addView(createLocationCard())
+        root.addView(content)
+        root.addView(createBottomMenu())
 
-        getLocationButton = createPrimaryButton("Определить координаты") {
-            onGetLocationClick()
-        }
-        contentLayout.addView(getLocationButton)
-
-        formLayout = createForm()
-        contentLayout.addView(formLayout)
-
-        scrollView.addView(contentLayout)
-
-        rootLayout.addView(scrollView)
-        rootLayout.addView(createBottomMenu())
-
-        return rootLayout
+        return root
     }
 
     private fun createHeader(): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor(Colors.GREEN))
-            setPadding(dp(20), dp(20), dp(20), dp(18))
+            setPadding(dp(18), dp(20), dp(18), dp(16))
 
             addView(TextView(this@MainActivity).apply {
-                text = "Новая точка"
-                textSize = 21f
+                text = "Карта пожара"
+                textSize = 20f
                 setTextColor(Color.WHITE)
                 typeface = Typeface.DEFAULT_BOLD
             })
 
-            addView(TextView(this@MainActivity).apply {
-                text = "Фиксация параметров кромки"
-                textSize = 13f
+            subtitleText = TextView(this@MainActivity).apply {
+                text = "Проверка офлайн-карты"
+                textSize = 12f
                 setTextColor(Color.parseColor("#C8DDCE"))
                 setPadding(0, dp(4), 0, 0)
-            })
+            }
+
+            addView(subtitleText)
         }
     }
 
-    private fun createLocationCard(): LinearLayout {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+    private fun createMapBlock(): FrameLayout {
+        mapContainer = FrameLayout(this).apply {
             background = roundedDrawable(
                 color = Colors.CARD,
-                radiusDp = 14,
+                radiusDp = 15,
                 strokeColor = Colors.BORDER,
                 strokeWidthDp = 1
             )
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            clipToOutline = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                0,
+                1f
             ).apply {
-                bottomMargin = dp(14)
+                bottomMargin = dp(12)
             }
         }
 
-        statusText = TextView(this).apply {
-            text = "Координаты не определены"
-            textSize = 16f
-            setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-
-        methodText = TextView(this).apply {
-            text = "Нажмите кнопку ниже, чтобы получить координаты"
-            textSize = 12f
-            setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
-            setPadding(0, dp(7), 0, 0)
-        }
-
-        progressBar = ProgressBar(this).apply {
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
-        }
-
-        card.addView(statusText)
-        card.addView(methodText)
-        card.addView(progressBar)
-
-        return card
+        return mapContainer
     }
 
-    private fun createForm(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(0, dp(4), 0, 0)
+    private fun refreshMapScreen() {
+        val mapPath = MapAvailability.getDownloadedMapPath(this)
 
-            addView(createLabel("Тип точки"))
-            addView(createPointTypeChips())
+        subtitleText.text = if (mapPath != null) {
+            "Офлайн-карта загружена"
+        } else {
+            "Карта не загружена · точки фиксируются по GPS"
+        }
 
-            addView(createLabel("Интенсивность горения"))
-            addView(createIntensityChips())
+        mapContainer.removeAllViews()
+        mapView = null
 
-            addView(createLabel("Тип пожара"))
-            addView(createFireTypeChips())
+        if (mapPath != null) {
+            val mapResult = runCatching<MapView?> {
+                createOfflineMapView(mapPath)
+            }.getOrNull()
 
-            addView(createLabel("Комментарий"))
-            notesInput = createStyledEditText(
-                hint = "Видимость снижена, сильный дым, рядом просека",
-                multiline = true
-            )
-            addView(notesInput)
-
-            accuracyWarningText = TextView(this@MainActivity).apply {
-                text = "Точность более 25 м!"
-                textSize = 13f
-                setTextColor(Color.parseColor(Colors.WARNING_TEXT))
-                gravity = Gravity.CENTER_VERTICAL
-                visibility = View.GONE
-                background = roundedDrawable(
-                    color = Colors.WARNING_BG,
-                    radiusDp = 11
+            if (mapResult != null) {
+                mapView = mapResult
+                mapContainer.addView(
+                    mapResult,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
                 )
-                setPadding(dp(16), 0, dp(16), 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(40)
-                ).apply {
-                    topMargin = dp(16)
-                    bottomMargin = dp(18)
-                }
+                addMarksToMap()
+            } else {
+                mapContainer.addView(createMapPlaceholder("Офлайн-карта пока не загружена"))
             }
-            addView(accuracyWarningText)
+        } else {
+            mapContainer.addView(createMapPlaceholder("Офлайн-карта пока не загружена"))
+        }
+    }
 
-            addView(createPrimaryButton("Сохранить точку") {
-                onSaveMarkClick()
+    private fun createOfflineMapView(mapPath: String): MapView {
+        val mapFile = File(mapPath)
+
+        val tileSource = XYTileSource(
+            "offline",
+            0,
+            20,
+            256,
+            ".png",
+            arrayOf<String>()
+        )
+
+        val archive = ArchiveFileFactory.getArchiveFile(mapFile)
+        val archives = arrayOf<IArchiveFile>(archive)
+
+        val registerReceiver = SimpleRegisterReceiver(this)
+
+        val archiveProvider = MapTileFileArchiveProvider(
+            registerReceiver,
+            tileSource,
+            archives
+        )
+
+        val tileProvider = MapTileProviderArray(
+            tileSource,
+            registerReceiver,
+            arrayOf(archiveProvider)
+        )
+
+        return MapView(this, tileProvider).apply {
+            setMultiTouchControls(true)
+            minZoomLevel = 10.0
+            maxZoomLevel = 20.0
+
+            val firstMark = database.getAllMarks().firstOrNull()
+            val center = if (firstMark != null) {
+                GeoPoint(firstMark.latitude, firstMark.longitude)
+            } else {
+                GeoPoint(56.0106, 92.8526)
+            }
+
+            controller.setZoom(15.0)
+            controller.setCenter(center)
+        }
+    }
+
+    private fun addMarksToMap() {
+        val map = mapView ?: return
+
+        map.overlays.removeAll { it is Marker }
+
+        database.getAllMarks().forEach { mark ->
+            val marker = Marker(map).apply {
+                position = GeoPoint(mark.latitude, mark.longitude)
+                title = mark.name
+                setSubDescription("${mark.pointType.label} · ${mark.intensity.label}")
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = circleDrawable(Colors.RED)
+            }
+
+            map.overlays.add(marker)
+        }
+
+        map.invalidate()
+    }
+
+    private fun createMapPlaceholder(message: String): FrameLayout {
+        return FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor(Colors.MAP_PLACEHOLDER))
+
+            addView(TextView(this@MainActivity).apply {
+                text = message
+                textSize = 14f
+                setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            })
+
+            addFakeMapDots(this)
+        }
+    }
+
+    private fun addFakeMapDots(parent: FrameLayout) {
+        val positions = listOf(
+            Pair(70, 270),
+            Pair(130, 295),
+            Pair(170, 292),
+            Pair(218, 268)
+        )
+
+        positions.forEach { (left, top) ->
+            parent.addView(View(this).apply {
+                background = circleDrawable(Colors.RED)
+                layoutParams = FrameLayout.LayoutParams(dp(13), dp(13)).apply {
+                    leftMargin = dp(left)
+                    topMargin = dp(top)
+                }
             })
         }
     }
 
-    private fun createLabel(textValue: String): TextView {
-        return TextView(this).apply {
-            text = textValue
+    private fun createAddPointBlock(): LinearLayout {
+        val block = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundedDrawable(
+                color = Colors.CARD,
+                radiusDp = 13
+            )
+            setPadding(dp(16), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(74)
+            ).apply {
+                bottomMargin = dp(10)
+            }
+
+            setOnClickListener {
+                onAddPointClick()
+            }
+        }
+
+        val textBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        textBlock.addView(TextView(this).apply {
+            text = "Добавить новую точку →"
             textSize = 14f
             setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
             typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(14)
-                bottomMargin = dp(8)
+        })
+
+        addCardSubtitle = TextView(this).apply {
+            text = "Текущая точность: неизвестна"
+            textSize = 11f
+            setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
+            setPadding(0, dp(5), 0, 0)
+        }
+
+        textBlock.addView(addCardSubtitle)
+
+        val plusButton = TextView(this).apply {
+            text = "+"
+            textSize = 34f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = circleDrawable(Colors.RED)
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+            setOnClickListener {
+                onAddPointClick()
+            }
+        }
+
+        block.addView(
+            textBlock,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+        block.addView(plusButton)
+
+        return block
+    }
+
+    private fun onAddPointClick() {
+        if (!locationHelper.hasLocationPermission()) {
+            Toast.makeText(this, "Нет разрешения на геолокацию", Toast.LENGTH_SHORT).show()
+            locationHelper.requestLocationPermission(this)
+            return
+        }
+
+        if (!locationHelper.isGpsEnabled() && !locationHelper.isNetworkEnabled()) {
+            showGpsDialog()
+            return
+        }
+
+        showLoading()
+        locationHelper.getCurrentLocation(allowCached = false)
+    }
+
+    private fun setupCallbacks() {
+        locationHelper.onLocationReceived = { lat, lon, _, accuracy ->
+            hideLoading()
+            currentLatitude = lat
+            currentLongitude = lon
+            currentHorizontalAccuracyMeters = accuracy
+
+            updateAccuracyInfo()
+            showAddPointDialog()
+        }
+
+        locationHelper.onLocationError = { message ->
+            hideLoading()
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+
+        locationHelper.onStatusUpdate = { message ->
+            subtitleText.text = message
+        }
+    }
+
+    private fun updateAccuracyInfo() {
+        val accuracy = currentHorizontalAccuracyMeters
+
+        if (this::addCardSubtitle.isInitialized) {
+            addCardSubtitle.text = if (accuracy != null) {
+                "Текущая точность: %.0f м".format(accuracy)
+            } else {
+                "Текущая точность: неизвестна"
             }
         }
     }
 
-    private fun createStyledEditText(
-        hint: String,
-        multiline: Boolean
-    ): EditText {
-        return EditText(this).apply {
-            this.hint = hint
+    private fun showLoading() {
+        if (!this::progressBar.isInitialized) {
+            progressBar = ProgressBar(this)
+        }
+
+        Toast.makeText(this, "Определение координат…", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun hideLoading() {
+        // Отдельный progressBar на макете не нужен, оставлено для совместимости логики.
+    }
+
+    private fun showAddPointDialog() {
+        val lat = currentLatitude ?: return
+        val lon = currentLongitude ?: return
+
+        var selectedPointType = PointType.FRONT
+        var selectedIntensity = FireIntensity.MEDIUM
+        var selectedFireType = FireType.GROUND
+
+        val pointTypeChips = mutableMapOf<PointType, TextView>()
+        val intensityChips = mutableMapOf<FireIntensity, TextView>()
+        val fireTypeChips = mutableMapOf<FireType, TextView>()
+
+        val notesInput = EditText(this).apply {
+            hint = "Комментарий"
             textSize = 13f
             setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
             setHintTextColor(Color.parseColor(Colors.TEXT_MUTED))
@@ -268,92 +451,130 @@ class MainActivity : Activity() {
                 strokeColor = Colors.BORDER,
                 strokeWidthDp = 1
             )
-            setPadding(dp(16), 0, dp(16), 0)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
 
-            if (multiline) {
-                minLines = 3
-                maxLines = 5
-                gravity = Gravity.TOP or Gravity.START
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(92)
+        lateinit var updatePointTypeChips: () -> Unit
+        lateinit var updateIntensityChips: () -> Unit
+        lateinit var updateFireTypeChips: () -> Unit
+
+        updatePointTypeChips = {
+            pointTypeChips.forEach { (type, chip) ->
+                updateChipStyle(chip, type == selectedPointType)
+            }
+        }
+
+        updateIntensityChips = {
+            intensityChips.forEach { (type, chip) ->
+                updateChipStyle(chip, type == selectedIntensity)
+            }
+        }
+
+        updateFireTypeChips = {
+            fireTypeChips.forEach { (type, chip) ->
+                updateChipStyle(chip, type == selectedFireType)
+            }
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(14), dp(20), dp(4))
+
+            addView(TextView(this@MainActivity).apply {
+                text = "Новая точка"
+                textSize = 19f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                val accuracy = currentHorizontalAccuracyMeters?.let {
+                    " · точность %.0f м".format(it)
+                } ?: ""
+                text = "%.6f, %.6f%s".format(lat, lon, accuracy)
+                textSize = 12f
+                setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
+                setPadding(0, dp(6), 0, dp(14))
+            })
+
+            addView(createDialogLabel("Тип точки"))
+            addView(createChipRow(PointType.entries.toList(), selectedPointType, pointTypeChips) { type ->
+                selectedPointType = type
+                updatePointTypeChips()
+            })
+
+            addView(createDialogLabel("Интенсивность"))
+            addView(createChipRow(FireIntensity.entries.toList(), selectedIntensity, intensityChips) { type ->
+                selectedIntensity = type
+                updateIntensityChips()
+            })
+
+            addView(createDialogLabel("Тип пожара"))
+            addView(createChipRow(FireType.entries.toList(), selectedFireType, fireTypeChips) { type ->
+                selectedFireType = type
+                updateFireTypeChips()
+            })
+
+            addView(createDialogLabel("Комментарий"))
+            addView(notesInput)
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setView(layout)
+            .setPositiveButton("Сохранить") { _, _ ->
+                savePoint(
+                    latitude = lat,
+                    longitude = lon,
+                    pointType = selectedPointType,
+                    intensity = selectedIntensity,
+                    fireType = selectedFireType,
+                    notes = notesInput.text.toString().trim().ifEmpty { null }
                 )
-            } else {
-                setSingleLine(true)
-                inputType = InputType.TYPE_CLASS_TEXT
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(46)
-                )
             }
-        }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
-    private fun createPointTypeChips(): LinearLayout {
-        pointTypeChipViews.clear()
-
+    private fun <T> createChipRow(
+        values: List<T>,
+        selectedValue: T,
+        chipMap: MutableMap<T, TextView>,
+        onSelect: (T) -> Unit
+    ): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
 
-            PointType.entries.forEach { type ->
-                val chip = createChoiceChip(
-                    textValue = type.label,
-                    selected = type == selectedPointType
-                ) {
-                    selectedPointType = type
-                    updatePointTypeChips()
+            values.forEach { value ->
+                val label = when (value) {
+                    is PointType -> value.label
+                    is FireIntensity -> value.label
+                    is FireType -> value.label
+                    else -> value.toString()
                 }
 
-                pointTypeChipViews[type] = chip
+                val chip = createChoiceChip(
+                    textValue = label,
+                    selected = value == selectedValue
+                ) {
+                    onSelect(value)
+                }
+
+                chipMap[value] = chip
                 addView(chip)
             }
         }
     }
 
-    private fun createIntensityChips(): LinearLayout {
-        intensityChipViews.clear()
-
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-
-            FireIntensity.entries.forEach { intensity ->
-                val chip = createChoiceChip(
-                    textValue = intensity.label,
-                    selected = intensity == selectedIntensity
-                ) {
-                    selectedIntensity = intensity
-                    updateIntensityChips()
-                }
-
-                intensityChipViews[intensity] = chip
-                addView(chip)
-            }
-        }
-    }
-
-    private fun createFireTypeChips(): LinearLayout {
-        fireTypeChipViews.clear()
-
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-
-            FireType.entries.forEach { fireType ->
-                val chip = createChoiceChip(
-                    textValue = fireType.label,
-                    selected = fireType == selectedFireType
-                ) {
-                    selectedFireType = fireType
-                    updateFireTypeChips()
-                }
-
-                fireTypeChipViews[fireType] = chip
-                addView(chip)
-            }
+    private fun createDialogLabel(textValue: String): TextView {
+        return TextView(this).apply {
+            text = textValue
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
+            setPadding(0, dp(10), 0, dp(7))
         }
     }
 
@@ -364,93 +585,67 @@ class MainActivity : Activity() {
     ): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = 12f
+            textSize = 11f
             gravity = Gravity.CENTER
-            typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            setTextColor(
-                Color.parseColor(
-                    if (selected) Color.WHITE.toHexString() else Colors.TEXT_PRIMARY
-                )
-            )
-            background = choiceChipDrawable(selected)
-            setPadding(dp(18), 0, dp(18), 0)
+            setPadding(dp(12), 0, dp(12), 0)
+            updateChipStyle(this, selected)
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 dp(32),
                 1f
             ).apply {
-                rightMargin = dp(8)
+                rightMargin = dp(7)
             }
-            setOnClickListener {
-                onClick()
-            }
+            setOnClickListener { onClick() }
         }
     }
 
-    private fun updatePointTypeChips() {
-        pointTypeChipViews.forEach { (type, chip) ->
-            val selected = type == selectedPointType
-            chip.background = choiceChipDrawable(selected)
-            chip.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            chip.setTextColor(
-                Color.parseColor(
-                    if (selected) Color.WHITE.toHexString() else Colors.TEXT_PRIMARY
-                )
-            )
+    private fun updateChipStyle(chip: TextView, selected: Boolean) {
+        chip.background = roundedDrawable(
+            color = if (selected) Colors.GREEN else Colors.GREEN_LIGHT,
+            radiusDp = 18
+        )
+        chip.setTextColor(Color.parseColor(if (selected) "#FFFFFF" else Colors.TEXT_PRIMARY))
+        chip.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+    }
+
+    private fun savePoint(
+        latitude: Double,
+        longitude: Double,
+        pointType: PointType,
+        intensity: FireIntensity,
+        fireType: FireType,
+        notes: String?
+    ) {
+        val mark = Mark(
+            name = buildPointName(pointType),
+            latitude = latitude,
+            longitude = longitude,
+            pointType = pointType,
+            intensity = intensity,
+            typeOfFire = fireType,
+            notes = notes,
+            horizontalAccuracyMeters = currentHorizontalAccuracyMeters
+        )
+
+        if (database.insertMark(mark) > 0) {
+            Toast.makeText(this, "Точка сохранена", Toast.LENGTH_SHORT).show()
+            refreshMapScreen()
+        } else {
+            Toast.makeText(this, "Ошибка сохранения точки", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun updateIntensityChips() {
-        intensityChipViews.forEach { (intensity, chip) ->
-            val selected = intensity == selectedIntensity
-            chip.background = choiceChipDrawable(selected)
-            chip.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            chip.setTextColor(
-                Color.parseColor(
-                    if (selected) Color.WHITE.toHexString() else Colors.TEXT_PRIMARY
-                )
-            )
-        }
-    }
+    private fun buildPointName(pointType: PointType): String {
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-    private fun updateFireTypeChips() {
-        fireTypeChipViews.forEach { (fireType, chip) ->
-            val selected = fireType == selectedFireType
-            chip.background = choiceChipDrawable(selected)
-            chip.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            chip.setTextColor(
-                Color.parseColor(
-                    if (selected) Color.WHITE.toHexString() else Colors.TEXT_PRIMARY
-                )
-            )
+        val baseName = when (pointType) {
+            PointType.FRONT -> "Фронт пожара"
+            PointType.FLANK -> "Фланг пожара"
+            PointType.REAR -> "Тыл пожара"
         }
-    }
 
-    private fun createPrimaryButton(
-        textValue: String,
-        onClick: () -> Unit
-    ): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            isAllCaps = false
-            background = roundedDrawable(
-                color = Colors.GREEN,
-                radiusDp = 9
-            )
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
-            ).apply {
-                topMargin = dp(8)
-                bottomMargin = dp(8)
-            }
-            setOnClickListener {
-                onClick()
-            }
-        }
+        return "$baseName $time"
     }
 
     private fun createBottomMenu(): LinearLayout {
@@ -459,10 +654,6 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setBackgroundColor(Color.WHITE)
             setPadding(0, dp(7), 0, dp(8))
-
-            addView(createMenuItem("🗺", "Карта", selected = false) {
-                // Действия убраны
-            })
 
             addView(createMenuItem("⌖", "Новая точка", selected = true) {
                 // Уже здесь
@@ -494,30 +685,20 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
             )
-            setOnClickListener {
-                onClick()
-            }
+            setOnClickListener { onClick() }
 
             addView(TextView(this@MainActivity).apply {
                 text = icon
                 textSize = 18f
                 gravity = Gravity.CENTER
-                setTextColor(
-                    Color.parseColor(
-                        if (selected) Colors.GREEN else Colors.TEXT_MUTED
-                    )
-                )
+                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
             })
 
             addView(TextView(this@MainActivity).apply {
                 text = label
                 textSize = 10f
                 gravity = Gravity.CENTER
-                setTextColor(
-                    Color.parseColor(
-                        if (selected) Colors.GREEN else Colors.TEXT_MUTED
-                    )
-                )
+                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
                 if (selected) {
                     typeface = Typeface.DEFAULT_BOLD
                 }
@@ -525,202 +706,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun setupCallbacks() {
-        locationHelper.onLocationReceived = { lat, lon, _, accuracy ->
-            hideLoading()
-            onLocationReceived(lat, lon, accuracy)
-        }
-
-        locationHelper.onLocationError = { message ->
-            hideLoading()
-            showError(message)
-        }
-
-        locationHelper.onStatusUpdate = { message ->
-            if (currentLatitude == null || currentLongitude == null) {
-                methodText.text = message
-            }
-        }
-    }
-
-    private fun updateMethodInfo() {
-        if (currentLatitude != null && currentLongitude != null) {
-            renderCoordinateInfo()
-            return
-        }
-
-        val hasInternet = locationHelper.hasInternetConnection()
-        val hasGps = locationHelper.isGpsEnabled()
-
-        statusText.text = when {
-            hasGps && hasInternet -> "Готово к определению координат"
-            hasGps && !hasInternet -> "GPS доступен без сети"
-            else -> "GPS отключен"
-        }
-
-        methodText.text = when {
-            hasGps && hasInternet -> "Можно получить текущие координаты"
-            hasGps && !hasInternet -> "Можно работать по GPS без интернета"
-            else -> "Включите геолокацию на устройстве"
-        }
-
-        statusText.setTextColor(
-            Color.parseColor(
-                when {
-                    hasGps -> Colors.TEXT_PRIMARY
-                    else -> Colors.WARNING_TEXT
-                }
-            )
-        )
-    }
-
     private fun checkPermissions() {
         if (!locationHelper.hasLocationPermission()) {
             locationHelper.requestLocationPermission(this)
         }
-    }
-
-    private fun onGetLocationClick() {
-        if (!locationHelper.hasLocationPermission()) {
-            Toast.makeText(this, "Нет разрешения на геолокацию", Toast.LENGTH_SHORT).show()
-            locationHelper.requestLocationPermission(this)
-            return
-        }
-
-        if (!locationHelper.isGpsEnabled() && !locationHelper.isNetworkEnabled()) {
-            showGpsDialog()
-            return
-        }
-
-        showLoading()
-        locationHelper.getCurrentLocation(allowCached = false)
-    }
-
-    private fun showLoading() {
-        progressBar.visibility = View.VISIBLE
-        getLocationButton.isEnabled = false
-        getLocationButton.alpha = 0.55f
-    }
-
-    private fun hideLoading() {
-        progressBar.visibility = View.GONE
-        getLocationButton.isEnabled = true
-        getLocationButton.alpha = 1f
-    }
-
-    private fun onLocationReceived(
-        lat: Double,
-        lon: Double,
-        horizontalAccuracyMeters: Float?
-    ) {
-        currentLatitude = lat
-        currentLongitude = lon
-        currentHorizontalAccuracyMeters = horizontalAccuracyMeters
-
-        renderCoordinateInfo()
-
-        Toast.makeText(this, "Координаты получены", Toast.LENGTH_SHORT).show()
-
-        getLocationButton.visibility = View.GONE
-        formLayout.visibility = View.VISIBLE
-
-        val date = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-            .format(Date())
-
-        currentAutoName = "Фиксация $date"
-    }
-
-    private fun renderCoordinateInfo() {
-        val lat = currentLatitude
-        val lon = currentLongitude
-
-        if (lat == null || lon == null) {
-            return
-        }
-
-        val accuracyText = currentHorizontalAccuracyMeters?.let {
-            "точность %.0f м".format(it)
-        } ?: "точность не указана"
-
-        statusText.text = "Координаты определены"
-        methodText.text = "%.6f, %.6f · %s".format(lat, lon, accuracyText)
-        statusText.setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
-
-        updateAccuracyWarning()
-    }
-
-    private fun updateAccuracyWarning() {
-        if (!this::accuracyWarningText.isInitialized) {
-            return
-        }
-
-        val accuracy = currentHorizontalAccuracyMeters
-
-        accuracyWarningText.visibility = if (accuracy != null && accuracy > 25f) {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
-    }
-
-    private fun showError(message: String) {
-        statusText.text = "Ошибка определения координат"
-        methodText.text = message
-        statusText.setTextColor(Color.parseColor(Colors.WARNING_TEXT))
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    }
-
-    private fun onSaveMarkClick() {
-        val lat = currentLatitude ?: run {
-            Toast.makeText(this, "Сначала получите координаты!", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val lon = currentLongitude ?: run {
-            Toast.makeText(this, "Сначала получите координаты!", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val mark = Mark(
-            name = currentAutoName,
-            latitude = lat,
-            longitude = lon,
-            pointType = selectedPointType,
-            intensity = selectedIntensity,
-            typeOfFire = selectedFireType,
-            notes = notesInput.text.toString().trim().ifEmpty { null },
-            horizontalAccuracyMeters = currentHorizontalAccuracyMeters
-        )
-
-        if (database.insertMark(mark) > 0) {
-            Toast.makeText(this, "Точка сохранена", Toast.LENGTH_LONG).show()
-            resetForm()
-        } else {
-            Toast.makeText(this, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun resetForm() {
-        formLayout.visibility = View.GONE
-        getLocationButton.visibility = View.VISIBLE
-
-        notesInput.setText("")
-
-        selectedPointType = PointType.FRONT
-        selectedIntensity = FireIntensity.MEDIUM
-        selectedFireType = FireType.GROUND
-
-        updatePointTypeChips()
-        updateIntensityChips()
-        updateFireTypeChips()
-
-        currentLatitude = null
-        currentLongitude = null
-        currentHorizontalAccuracyMeters = null
-        currentAutoName = ""
-
-        updateAccuracyWarning()
-        updateMethodInfo()
     }
 
     private fun showGpsDialog() {
@@ -732,6 +721,24 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("Нет", null)
             .show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        MapDownloadScheduler.startAutomaticDownloads(this)
+        mapView?.onResume()
+        refreshMapScreen()
+    }
+
+    override fun onPause() {
+        mapView?.onPause()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        locationHelper.stopLocationUpdates()
+        mapView?.onDetach()
     }
 
     override fun onRequestPermissionsResult(
@@ -746,20 +753,9 @@ class MainActivity : Activity() {
                 grantResults.isNotEmpty() &&
                 grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
-                updateMethodInfo()
                 Toast.makeText(this, "Разрешение получено", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateMethodInfo()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        locationHelper.stopLocationUpdates()
     }
 
     private fun roundedDrawable(
@@ -779,15 +775,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun choiceChipDrawable(selected: Boolean): GradientDrawable {
-        return roundedDrawable(
-            color = if (selected) Colors.GREEN else Colors.GREEN_LIGHT,
-            radiusDp = 18
-        )
-    }
-
-    private fun Int.toHexString(): String {
-        return String.format("#%06X", 0xFFFFFF and this)
+    private fun circleDrawable(color: String): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor(color))
+            setStroke(dp(2), Color.WHITE)
+            setSize(dp(18), dp(18))
+        }
     }
 
     private fun dp(value: Int): Int {

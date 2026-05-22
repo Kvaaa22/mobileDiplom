@@ -50,6 +50,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.appcompat)
     testImplementation(libs.junit)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

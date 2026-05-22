@@ -11,7 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import com.example.geometka.auth.AppSession
-
+import com.example.geometka.maps.MapDownloadScheduler
 class LoginActivity : Activity() {
 
     private lateinit var loginInput: EditText
@@ -211,6 +211,7 @@ class LoginActivity : Activity() {
 
             setOnClickListener {
                 AppSession.unlock(this@LoginActivity, "Демо-аккаунт")
+                MapDownloadScheduler.startAutomaticDownloads(this@LoginActivity)
                 openMainScreen()
             }
         }
@@ -248,9 +249,11 @@ class LoginActivity : Activity() {
         // Простая логика проверки (для примера)
         if (login == "admin" && password == "admin") {
             AppSession.unlock(this, login)
+            MapDownloadScheduler.startAutomaticDownloads(this)
             openMainScreen()
         } else if (login == "user" && password == "1234") {
             AppSession.unlock(this, login)
+            MapDownloadScheduler.startAutomaticDownloads(this)
             openMainScreen()
         } else {
             Toast.makeText(this, "Неверный логин или пароль", Toast.LENGTH_SHORT).show()

@@ -65,6 +65,10 @@ class MarkListActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Убираем нижний ряд системных кнопок навигации
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+
         database = MarkDatabase(this)
 
         setContentView(createLayout())
@@ -341,10 +345,6 @@ class MarkListActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             setPadding(0, dp(7), 0, dp(8))
         }
-
-        nav.addView(createNavItem("🗺", "Карта", selected = false) {
-            // Действие убрано
-        })
 
         nav.addView(createNavItem("⌖", "Новая точка", selected = false) {
             startActivity(Intent(this, MainActivity::class.java))
