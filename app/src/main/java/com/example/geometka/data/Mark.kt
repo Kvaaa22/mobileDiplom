@@ -15,7 +15,8 @@ data class Mark(
 
     val notes: String?, // Дополнительные заметки
     val createdAt: Long = System.currentTimeMillis(),  // Время создания
-    val horizontalAccuracyMeters: Float?
+    val horizontalAccuracyMeters: Float?,
+    val syncStatus: SyncStatus = SyncStatus.LOCAL
 ) {
     // Форматированная дата
     fun getFormattedDate(): String {
@@ -46,4 +47,10 @@ enum class FireType(val label: String) {
     GROUND("Низовой"),
     CROWN("Верховой"),
     PEAT("Торфяной")
+}
+
+enum class SyncStatus {
+    LOCAL,
+    SYNCED,
+    PENDING
 }

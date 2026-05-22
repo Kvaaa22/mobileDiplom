@@ -10,8 +10,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
 
     companion object {
         private const val DATABASE_NAME = "geometka.db"
-        // Увеличили версию с 1 на 2, чтобы сработало onUpgrade
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3 // Увеличено до 3 для добавления syncStatus
 
         private const val TABLE_MARKS = "marks"
 
@@ -25,6 +24,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
         private const val COLUMN_NOTES = "notes"
         private const val COLUMN_CREATED_AT = "created_at"
         private const val COLUMN_ACCURACY = "horizontal_accuracy_meters"
+        private const val COLUMN_SYNC_STATUS = "sync_status"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -39,14 +39,14 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
                 $COLUMN_FIRE_TYPE TEXT NOT NULL,
                 $COLUMN_NOTES TEXT,
                 $COLUMN_CREATED_AT INTEGER NOT NULL,
-                $COLUMN_ACCURACY REAL
+                $COLUMN_ACCURACY REAL,
+                $COLUMN_SYNC_STATUS TEXT NOT NULL
             )
         """.trimIndent()
         db.execSQL(createTable)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // При любом обновлении версии сносим старую таблицу и создаем новую с верными колонками
         db.execSQL("DROP TABLE IF EXISTS $TABLE_MARKS")
         onCreate(db)
     }
@@ -63,6 +63,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
             put(COLUMN_NOTES, mark.notes)
             put(COLUMN_CREATED_AT, mark.createdAt)
             put(COLUMN_ACCURACY, mark.horizontalAccuracyMeters)
+            put(COLUMN_SYNC_STATUS, mark.syncStatus.name)
         }
         return db.insert(TABLE_MARKS, null, values)
     }
@@ -99,7 +100,8 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
             typeOfFire = enumValueOrDefault(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_FIRE_TYPE)), FireType.GROUND),
             notes = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NOTES)),
             createdAt = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_CREATED_AT)),
-            horizontalAccuracyMeters = if (cursor.isNull(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY))) null else cursor.getFloat(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY))
+            horizontalAccuracyMeters = if (cursor.isNull(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY))) null else cursor.getFloat(cursor.getColumnIndexOrThrow(COLUMN_ACCURACY)),
+            syncStatus = enumValueOrDefault(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_SYNC_STATUS)), SyncStatus.LOCAL)
         )
     }
 
@@ -114,6 +116,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, 
             put(COLUMN_FIRE_TYPE, mark.typeOfFire.name)
             put(COLUMN_NOTES, mark.notes)
             put(COLUMN_ACCURACY, mark.horizontalAccuracyMeters)
+            put(COLUMN_SYNC_STATUS, mark.syncStatus.name)
         }
         return db.update(TABLE_MARKS, values, "$COLUMN_ID = ?", arrayOf(mark.id.toString()))
     }
