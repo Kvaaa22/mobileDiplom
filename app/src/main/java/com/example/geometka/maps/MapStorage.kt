@@ -23,7 +23,7 @@ object MapStorage {
         remoteId: Long,
         version: Int
     ): File {
-        return File(mapsDir(context), "map_${remoteId}_v$version.mbtiles")
+        return File(mapsDir(context), "map_${remoteId}_v$version.map")
     }
 
     fun tempFile(
@@ -31,7 +31,7 @@ object MapStorage {
         remoteId: Long,
         version: Int
     ): File {
-        return File(mapsDir(context), "map_${remoteId}_v$version.mbtiles.part")
+        return File(mapsDir(context), "map_${remoteId}_v$version.map.part")
     }
 
     fun sha256(file: File): String {
@@ -61,7 +61,7 @@ object MapStorage {
 
             if (
                 file.name.startsWith("map_") &&
-                file.name.endsWith(".mbtiles") &&
+                file.name.endsWith(".map") &&
                 file.name != currentName
             ) {
                 file.delete()

@@ -1,35 +1,45 @@
 package com.example.geometka
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.View
-import android.widget.*
+import android.view.WindowManager
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
 import com.example.geometka.data.FireIntensity
 import com.example.geometka.data.FireType
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
+import com.example.geometka.data.OfflineMapConfig
 import com.example.geometka.data.PointType
 import com.example.geometka.helpers.LocationHelper
-import com.example.geometka.maps.MapAvailability
-import com.example.geometka.maps.MapDownloadScheduler
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.MapTileProviderArray
-import org.osmdroid.tileprovider.modules.ArchiveFileFactory
-import org.osmdroid.tileprovider.modules.IArchiveFile
-import org.osmdroid.tileprovider.modules.MapTileFileArchiveProvider
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.tileprovider.util.SimpleRegisterReceiver
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import java.io.File
+import com.example.geometka.helpers.OfflineMapFileManager
+import org.mapsforge.core.model.LatLong
+import org.mapsforge.map.android.graphics.AndroidBitmap
+import org.mapsforge.map.android.graphics.AndroidGraphicFactory
+import org.mapsforge.map.android.util.AndroidUtil
+import org.mapsforge.map.android.view.MapView
+import org.mapsforge.map.datastore.MapDataStore
+import org.mapsforge.map.layer.cache.TileCache
+import org.mapsforge.map.layer.overlay.Marker
+import org.mapsforge.map.layer.renderer.TileRendererLayer
+import org.mapsforge.map.reader.MapFile
+import org.mapsforge.map.rendertheme.InternalRenderTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,9 +52,16 @@ class MainActivity : Activity() {
     private lateinit var subtitleText: TextView
     private lateinit var addCardSubtitle: TextView
     private lateinit var mapContainer: FrameLayout
-    private lateinit var progressBar: ProgressBar
+    private lateinit var pointsInfoText: TextView
+    private lateinit var accuracyChip: TextView
 
     private var mapView: MapView? = null
+    private var tileCache: TileCache? = null
+    private var mapDataStore: MapDataStore? = null
+    private var tileRendererLayer: TileRendererLayer? = null
+
+    private val markLayers = mutableListOf<Marker>()
+    private var currentLocationMarker: Marker? = null
 
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
@@ -61,31 +78,33 @@ class MainActivity : Activity() {
         const val TEXT_SECONDARY = "#6F7D73"
         const val TEXT_MUTED = "#9AA69E"
         const val RED = "#D73620"
+        const val ORANGE = "#F28C28"
+        const val BLUE = "#2F80ED"
         const val MAP_PLACEHOLDER = "#DCEAD7"
+    }
+
+    companion object {
+        private const val TAG = "MainMap"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        AndroidGraphicFactory.createInstance(application)
+
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.WHITE
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
-
-        Configuration.getInstance().load(
-            this,
-            getSharedPreferences("osmdroid", MODE_PRIVATE)
-        )
-        Configuration.getInstance().userAgentValue = packageName
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
 
         locationHelper = LocationHelper(this)
         database = MarkDatabase(this)
 
-        MapDownloadScheduler.startAutomaticDownloads(this)
-
         setContentView(createLayout())
+
         setupCallbacks()
         checkPermissions()
         refreshMapScreen()
+        requestCurrentLocationIfPossible()
     }
 
     private fun createLayout(): View {
@@ -122,14 +141,14 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(20), dp(18), dp(16))
 
             addView(TextView(this@MainActivity).apply {
-                text = "Карта пожара"
+                text = OfflineMapConfig.MAP_TITLE
                 textSize = 20f
                 setTextColor(Color.WHITE)
                 typeface = Typeface.DEFAULT_BOLD
             })
 
             subtitleText = TextView(this@MainActivity).apply {
-                text = "Проверка офлайн-карты"
+                text = "Проверка карты"
                 textSize = 12f
                 setTextColor(Color.parseColor("#C8DDCE"))
                 setPadding(0, dp(4), 0, 0)
@@ -147,7 +166,7 @@ class MainActivity : Activity() {
                 strokeColor = Colors.BORDER,
                 strokeWidthDp = 1
             )
-            clipToOutline = false
+
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -160,146 +179,6 @@ class MainActivity : Activity() {
         return mapContainer
     }
 
-    private fun refreshMapScreen() {
-        val mapPath = MapAvailability.getDownloadedMapPath(this)
-
-        subtitleText.text = if (mapPath != null) {
-            "Офлайн-карта загружена"
-        } else {
-            "Карта не загружена · точки фиксируются по GPS"
-        }
-
-        mapContainer.removeAllViews()
-        mapView = null
-
-        if (mapPath != null) {
-            val mapResult = runCatching<MapView?> {
-                createOfflineMapView(mapPath)
-            }.getOrNull()
-
-            if (mapResult != null) {
-                mapView = mapResult
-                mapContainer.addView(
-                    mapResult,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                    )
-                )
-                addMarksToMap()
-            } else {
-                mapContainer.addView(createMapPlaceholder("Офлайн-карта пока не загружена"))
-            }
-        } else {
-            mapContainer.addView(createMapPlaceholder("Офлайн-карта пока не загружена"))
-        }
-    }
-
-    private fun createOfflineMapView(mapPath: String): MapView {
-        val mapFile = File(mapPath)
-
-        val tileSource = XYTileSource(
-            "offline",
-            0,
-            20,
-            256,
-            ".png",
-            arrayOf<String>()
-        )
-
-        val archive = ArchiveFileFactory.getArchiveFile(mapFile)
-        val archives = arrayOf<IArchiveFile>(archive)
-
-        val registerReceiver = SimpleRegisterReceiver(this)
-
-        val archiveProvider = MapTileFileArchiveProvider(
-            registerReceiver,
-            tileSource,
-            archives
-        )
-
-        val tileProvider = MapTileProviderArray(
-            tileSource,
-            registerReceiver,
-            arrayOf(archiveProvider)
-        )
-
-        return MapView(this, tileProvider).apply {
-            setMultiTouchControls(true)
-            minZoomLevel = 10.0
-            maxZoomLevel = 20.0
-
-            val firstMark = database.getAllMarks().firstOrNull()
-            val center = if (firstMark != null) {
-                GeoPoint(firstMark.latitude, firstMark.longitude)
-            } else {
-                GeoPoint(56.0106, 92.8526)
-            }
-
-            controller.setZoom(15.0)
-            controller.setCenter(center)
-        }
-    }
-
-    private fun addMarksToMap() {
-        val map = mapView ?: return
-
-        map.overlays.removeAll { it is Marker }
-
-        database.getAllMarks().forEach { mark ->
-            val marker = Marker(map).apply {
-                position = GeoPoint(mark.latitude, mark.longitude)
-                title = mark.name
-                setSubDescription("${mark.pointType.label} · ${mark.intensity.label}")
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                icon = circleDrawable(Colors.RED)
-            }
-
-            map.overlays.add(marker)
-        }
-
-        map.invalidate()
-    }
-
-    private fun createMapPlaceholder(message: String): FrameLayout {
-        return FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor(Colors.MAP_PLACEHOLDER))
-
-            addView(TextView(this@MainActivity).apply {
-                text = message
-                textSize = 14f
-                setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
-                gravity = Gravity.CENTER
-                typeface = Typeface.DEFAULT_BOLD
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            })
-
-            addFakeMapDots(this)
-        }
-    }
-
-    private fun addFakeMapDots(parent: FrameLayout) {
-        val positions = listOf(
-            Pair(70, 270),
-            Pair(130, 295),
-            Pair(170, 292),
-            Pair(218, 268)
-        )
-
-        positions.forEach { (left, top) ->
-            parent.addView(View(this).apply {
-                background = circleDrawable(Colors.RED)
-                layoutParams = FrameLayout.LayoutParams(dp(13), dp(13)).apply {
-                    leftMargin = dp(left)
-                    topMargin = dp(top)
-                }
-            })
-        }
-    }
-
     private fun createAddPointBlock(): LinearLayout {
         val block = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -309,6 +188,7 @@ class MainActivity : Activity() {
                 radiusDp = 13
             )
             setPadding(dp(16), dp(12), dp(12), dp(12))
+
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(74)
@@ -348,7 +228,9 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             background = circleDrawable(Colors.RED)
+
             layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+
             setOnClickListener {
                 onAddPointClick()
             }
@@ -362,9 +244,299 @@ class MainActivity : Activity() {
                 1f
             )
         )
+
         block.addView(plusButton)
 
         return block
+    }
+
+    private fun createBottomMenu(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.WHITE)
+            setPadding(0, dp(7), 0, dp(8))
+
+            addView(createMenuItem("⌖", "Карта", selected = true) {
+                refreshMapScreen()
+            })
+
+            addView(createMenuItem("●", "Точки", selected = false) {
+                startActivity(Intent(this@MainActivity, MarkListActivity::class.java))
+            })
+
+            addView(createMenuItem("⇄", "Синхр.", selected = false) {
+                startActivity(Intent(this@MainActivity, SyncActivity::class.java))
+            })
+        }
+    }
+
+    private fun createMenuItem(
+        icon: String,
+        label: String,
+        selected: Boolean,
+        onClick: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+
+            setOnClickListener {
+                onClick()
+            }
+
+            addView(TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
+
+                if (selected) {
+                    typeface = Typeface.DEFAULT_BOLD
+                }
+            })
+        }
+    }
+
+    private fun refreshMapScreen() {
+        cleanupMapView()
+
+        mapContainer.removeAllViews()
+
+        val mapFile = OfflineMapFileManager.getMapFileOrNull(this)
+        val hasInternet = locationHelper.hasInternetConnection()
+
+        if (mapFile != null) {
+            val created = runCatching {
+                createMapsforgeMapView(mapFile)
+            }.onFailure { error ->
+                Log.e(TAG, "Map loading failed", error)
+            }.getOrNull()
+
+            if (created != null) {
+                mapView = created
+
+                mapContainer.addView(
+                    created,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
+
+                addAccuracyChip()
+                subtitleText.text = if (hasInternet) {
+                    "Карта загружена · сеть доступна"
+                } else {
+                    "Офлайн-карта загружена · сеть недоступна"
+                }
+
+                redrawMarksOnMap()
+                return
+            }
+        }
+
+        subtitleText.text = if (hasInternet) {
+            "Файл карты не найден · используется схема точек"
+        } else {
+            "Нет сети и файла карты · используется схема точек"
+        }
+
+        mapContainer.addView(createMapPlaceholder())
+    }
+
+    private fun createMapsforgeMapView(mapFile: java.io.File): MapView {
+        val view = MapView(this).apply {
+            isClickable = true
+            setBuiltInZoomControls(false)
+        }
+
+        tileCache = AndroidUtil.createTileCache(
+            this,
+            "mapsforge-cache",
+            view.model.displayModel.tileSize,
+            1f,
+            view.model.frameBufferModel.overdrawFactor
+        )
+
+        val mapFileStore = MapFile(mapFile)
+        mapDataStore = mapFileStore
+
+        val boundingBox = mapFileStore.boundingBox()
+
+        val rendererLayer = TileRendererLayer(
+            tileCache,
+            mapFileStore,
+            view.model.mapViewPosition,
+            AndroidGraphicFactory.INSTANCE
+        ).apply {
+            setXmlRenderTheme(InternalRenderTheme.DEFAULT)
+        }
+
+        tileRendererLayer = rendererLayer
+        view.layerManager.layers.add(rendererLayer)
+
+        val marks = database.getAllMarks()
+
+        if (marks.isNotEmpty()) {
+            val newest = marks.first()
+            view.model.mapViewPosition.setCenter(
+                LatLong(newest.latitude, newest.longitude)
+            )
+        } else {
+            val centerLat = (boundingBox.minLatitude + boundingBox.maxLatitude) / 2.0
+            val centerLon = (boundingBox.minLongitude + boundingBox.maxLongitude) / 2.0
+
+            view.model.mapViewPosition.setCenter(
+                LatLong(centerLat, centerLon)
+            )
+        }
+
+        view.model.mapViewPosition.setZoomLevel(OfflineMapConfig.DEFAULT_ZOOM)
+
+        return view
+    }
+
+    private fun addAccuracyChip() {
+        accuracyChip = TextView(this).apply {
+            text = "GPS —"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
+            background = roundedDrawable(Colors.CARD, 20)
+            setPadding(dp(12), 0, dp(12), 0)
+
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(32)
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                leftMargin = dp(14)
+                topMargin = dp(14)
+            }
+        }
+
+        mapContainer.addView(accuracyChip)
+    }
+
+    private fun createMapPlaceholder(): View {
+        return PlaceholderMapView(this, database.getAllMarks()).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+
+            setOnClickListener {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Файл карты должен лежать в: ${OfflineMapFileManager.getExpectedMapPath(this@MainActivity)}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun setupCallbacks() {
+        locationHelper.onLocationReceived = { lat, lon, _, accuracy ->
+            currentLatitude = lat
+            currentLongitude = lon
+            currentHorizontalAccuracyMeters = accuracy
+
+            updateAccuracyInfo()
+
+            val map = mapView
+            if (map != null) {
+                val position = LatLong(lat, lon)
+                addOrUpdateCurrentLocationMarker(position)
+            }
+        }
+
+        locationHelper.onLocationError = { message ->
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            subtitleText.text = message
+        }
+
+        locationHelper.onStatusUpdate = { message ->
+            subtitleText.text = message
+        }
+    }
+
+    private fun requestCurrentLocationIfPossible() {
+        if (!locationHelper.hasLocationPermission()) {
+            return
+        }
+
+        if (!locationHelper.isGpsEnabled() && !locationHelper.isNetworkEnabled()) {
+            return
+        }
+
+        locationHelper.getCurrentLocation(allowCached = true)
+    }
+
+    private fun addOrUpdateCurrentLocationMarker(position: LatLong) {
+        val map = mapView ?: return
+
+        currentLocationMarker?.let {
+            map.layerManager.layers.remove(it)
+        }
+
+        val marker = Marker(
+            position,
+            createCircleBitmap(Color.parseColor(Colors.BLUE), dp(18)),
+            0,
+            -dp(9)
+        )
+
+        currentLocationMarker = marker
+        map.layerManager.layers.add(marker)
+    }
+
+    private fun redrawMarksOnMap() {
+        val map = mapView ?: return
+
+        markLayers.forEach { marker ->
+            map.layerManager.layers.remove(marker)
+        }
+        markLayers.clear()
+
+        val marks = database.getAllMarks()
+        pointsInfoText.text = "Сохраненных точек: ${marks.size}"
+
+        marks.forEach { mark ->
+            val marker = Marker(
+                LatLong(mark.latitude, mark.longitude),
+                createCircleBitmap(colorForMark(mark), dp(22)),
+                0,
+                -dp(11)
+            )
+
+            markLayers.add(marker)
+            map.layerManager.layers.add(marker)
+        }
+
+        map.invalidate()
+    }
+
+    private fun colorForMark(mark: Mark): Int {
+        return when (mark.pointType) {
+            PointType.FRONT -> Color.parseColor(Colors.RED)
+            PointType.FLANK -> Color.parseColor(Colors.ORANGE)
+            PointType.REAR -> Color.parseColor(Colors.GREEN)
+        }
     }
 
     private fun onAddPointClick() {
@@ -379,29 +551,24 @@ class MainActivity : Activity() {
             return
         }
 
-        showLoading()
-        locationHelper.getCurrentLocation(allowCached = false)
-    }
+        Toast.makeText(this, "Определение координат…", Toast.LENGTH_SHORT).show()
 
-    private fun setupCallbacks() {
         locationHelper.onLocationReceived = { lat, lon, _, accuracy ->
-            hideLoading()
             currentLatitude = lat
             currentLongitude = lon
             currentHorizontalAccuracyMeters = accuracy
 
             updateAccuracyInfo()
+
+            val map = mapView
+            if (map != null) {
+                addOrUpdateCurrentLocationMarker(LatLong(lat, lon))
+            }
+
             showAddPointDialog()
         }
 
-        locationHelper.onLocationError = { message ->
-            hideLoading()
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        }
-
-        locationHelper.onStatusUpdate = { message ->
-            subtitleText.text = message
-        }
+        locationHelper.getCurrentLocation(allowCached = false)
     }
 
     private fun updateAccuracyInfo() {
@@ -414,18 +581,14 @@ class MainActivity : Activity() {
                 "Текущая точность: неизвестна"
             }
         }
-    }
 
-    private fun showLoading() {
-        if (!this::progressBar.isInitialized) {
-            progressBar = ProgressBar(this)
+        if (this::accuracyChip.isInitialized) {
+            accuracyChip.text = if (accuracy != null) {
+                "GPS %.0f м".format(accuracy)
+            } else {
+                "GPS —"
+            }
         }
-
-        Toast.makeText(this, "Определение координат…", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun hideLoading() {
-        // Отдельный progressBar на макете не нужен, оставлено для совместимости логики.
     }
 
     private fun showAddPointDialog() {
@@ -493,6 +656,7 @@ class MainActivity : Activity() {
                 val accuracy = currentHorizontalAccuracyMeters?.let {
                     " · точность %.0f м".format(it)
                 } ?: ""
+
                 text = "%.6f, %.6f%s".format(lat, lon, accuracy)
                 textSize = 12f
                 setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
@@ -500,28 +664,49 @@ class MainActivity : Activity() {
             })
 
             addView(createDialogLabel("Тип точки"))
-            addView(createChipRow(PointType.entries.toList(), selectedPointType, pointTypeChips) { type ->
-                selectedPointType = type
-                updatePointTypeChips()
-            })
+
+            addView(
+                createChipRow(
+                    values = PointType.values().toList(),
+                    selectedValue = selectedPointType,
+                    chipMap = pointTypeChips
+                ) { type ->
+                    selectedPointType = type
+                    updatePointTypeChips()
+                }
+            )
 
             addView(createDialogLabel("Интенсивность"))
-            addView(createChipRow(FireIntensity.entries.toList(), selectedIntensity, intensityChips) { type ->
-                selectedIntensity = type
-                updateIntensityChips()
-            })
+
+            addView(
+                createChipRow(
+                    values = FireIntensity.values().toList(),
+                    selectedValue = selectedIntensity,
+                    chipMap = intensityChips
+                ) { type ->
+                    selectedIntensity = type
+                    updateIntensityChips()
+                }
+            )
 
             addView(createDialogLabel("Тип пожара"))
-            addView(createChipRow(FireType.entries.toList(), selectedFireType, fireTypeChips) { type ->
-                selectedFireType = type
-                updateFireTypeChips()
-            })
+
+            addView(
+                createChipRow(
+                    values = FireType.values().toList(),
+                    selectedValue = selectedFireType,
+                    chipMap = fireTypeChips
+                ) { type ->
+                    selectedFireType = type
+                    updateFireTypeChips()
+                }
+            )
 
             addView(createDialogLabel("Комментарий"))
             addView(notesInput)
         }
 
-        android.app.AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setView(layout)
             .setPositiveButton("Сохранить") { _, _ ->
                 savePoint(
@@ -589,6 +774,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(12), 0, dp(12), 0)
             updateChipStyle(this, selected)
+
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 dp(32),
@@ -596,7 +782,10 @@ class MainActivity : Activity() {
             ).apply {
                 rightMargin = dp(7)
             }
-            setOnClickListener { onClick() }
+
+            setOnClickListener {
+                onClick()
+            }
         }
     }
 
@@ -605,8 +794,16 @@ class MainActivity : Activity() {
             color = if (selected) Colors.GREEN else Colors.GREEN_LIGHT,
             radiusDp = 18
         )
-        chip.setTextColor(Color.parseColor(if (selected) "#FFFFFF" else Colors.TEXT_PRIMARY))
-        chip.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+
+        chip.setTextColor(
+            Color.parseColor(if (selected) "#FFFFFF" else Colors.TEXT_PRIMARY)
+        )
+
+        chip.typeface = if (selected) {
+            Typeface.DEFAULT_BOLD
+        } else {
+            Typeface.DEFAULT
+        }
     }
 
     private fun savePoint(
@@ -630,6 +827,7 @@ class MainActivity : Activity() {
 
         if (database.insertMark(mark) > 0) {
             Toast.makeText(this, "Точка сохранена", Toast.LENGTH_SHORT).show()
+            setupCallbacks()
             refreshMapScreen()
         } else {
             Toast.makeText(this, "Ошибка сохранения точки", Toast.LENGTH_SHORT).show()
@@ -648,62 +846,6 @@ class MainActivity : Activity() {
         return "$baseName $time"
     }
 
-    private fun createBottomMenu(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE)
-            setPadding(0, dp(7), 0, dp(8))
-
-            addView(createMenuItem("⌖", "Карта", selected = false) {
-                startActivity(Intent(this@MainActivity, OfflineMapActivity::class.java))
-            })
-
-            addView(createMenuItem("●", "Точки", selected = false) {
-                startActivity(Intent(this@MainActivity, MarkListActivity::class.java))
-            })
-
-            addView(createMenuItem("⇄", "Синхр.", selected = false) {
-                startActivity(Intent(this@MainActivity, SyncActivity::class.java))
-            })
-        }
-    }
-
-    private fun createMenuItem(
-        icon: String,
-        label: String,
-        selected: Boolean,
-        onClick: () -> Unit
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
-            )
-            setOnClickListener { onClick() }
-
-            addView(TextView(this@MainActivity).apply {
-                text = icon
-                textSize = 18f
-                gravity = Gravity.CENTER
-                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
-            })
-
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = 10f
-                gravity = Gravity.CENTER
-                setTextColor(Color.parseColor(if (selected) Colors.GREEN else Colors.TEXT_MUTED))
-                if (selected) {
-                    typeface = Typeface.DEFAULT_BOLD
-                }
-            })
-        }
-    }
-
     private fun checkPermissions() {
         if (!locationHelper.hasLocationPermission()) {
             locationHelper.requestLocationPermission(this)
@@ -711,7 +853,7 @@ class MainActivity : Activity() {
     }
 
     private fun showGpsDialog() {
-        android.app.AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("Геолокация отключена")
             .setMessage("Включить GPS?")
             .setPositiveButton("Да") { _, _ ->
@@ -723,20 +865,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        MapDownloadScheduler.startAutomaticDownloads(this)
-        mapView?.onResume()
         refreshMapScreen()
+        requestCurrentLocationIfPossible()
     }
 
     override fun onPause() {
-        mapView?.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         locationHelper.stopLocationUpdates()
-        mapView?.onDetach()
+        cleanupMapView()
+        AndroidGraphicFactory.clearResourceMemoryCache()
     }
 
     override fun onRequestPermissionsResult(
@@ -746,14 +887,71 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == LocationHelper.LOCATION_PERMISSION_REQUEST_CODE) {
-            if (
-                grantResults.isNotEmpty() &&
-                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                Toast.makeText(this, "Разрешение получено", Toast.LENGTH_SHORT).show()
+        if (
+            requestCode == LocationHelper.LOCATION_PERMISSION_REQUEST_CODE &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, "Разрешение получено", Toast.LENGTH_SHORT).show()
+            requestCurrentLocationIfPossible()
+        }
+    }
+
+    private fun cleanupMapView() {
+        val map = mapView
+
+        markLayers.clear()
+        currentLocationMarker = null
+        tileRendererLayer = null
+
+        mapDataStore?.close()
+        mapDataStore = null
+
+        tileCache?.destroy()
+        tileCache = null
+
+        if (map != null) {
+            runCatching {
+                map.destroyAll()
             }
         }
+
+        mapView = null
+    }
+
+    private fun createCircleBitmap(
+        color: Int,
+        sizePx: Int
+    ): org.mapsforge.core.graphics.Bitmap {
+        val androidBitmap = android.graphics.Bitmap.createBitmap(
+            sizePx,
+            sizePx,
+            android.graphics.Bitmap.Config.ARGB_8888
+        )
+
+        val canvas = Canvas(androidBitmap)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.WHITE
+        }
+
+        canvas.drawCircle(
+            sizePx / 2f,
+            sizePx / 2f,
+            sizePx / 2f,
+            paint
+        )
+
+        paint.color = color
+
+        canvas.drawCircle(
+            sizePx / 2f,
+            sizePx / 2f,
+            sizePx * 0.35f,
+            paint
+        )
+
+        return AndroidBitmap(androidBitmap)
     }
 
     private fun roundedDrawable(
@@ -784,5 +982,149 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private inner class PlaceholderMapView(
+        context: android.content.Context,
+        private val marks: List<Mark>
+    ) : View(context) {
+
+        private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor(Colors.MAP_PLACEHOLDER)
+        }
+
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#B8CEB4")
+            strokeWidth = dp(2).toFloat()
+        }
+
+        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor(Colors.TEXT_SECONDARY)
+            textSize = dp(14).toFloat()
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+
+        private val subTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor(Colors.TEXT_MUTED)
+            textSize = dp(11).toFloat()
+            textAlign = Paint.Align.CENTER
+        }
+
+        private val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor(Colors.RED)
+        }
+
+        private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
+
+            drawGrid(canvas)
+
+            val points = if (marks.isNotEmpty()) {
+                normalizeMarks(marks)
+            } else {
+                listOf(
+                    0.28f to 0.58f,
+                    0.42f to 0.62f,
+                    0.57f to 0.55f,
+                    0.70f to 0.43f
+                )
+            }
+
+            for (index in 0 until points.size - 1) {
+                val first = points[index]
+                val second = points[index + 1]
+
+                canvas.drawLine(
+                    first.first * width,
+                    first.second * height,
+                    second.first * width,
+                    second.second * height,
+                    linePaint
+                )
+            }
+
+            points.forEach { point ->
+                val x = point.first * width
+                val y = point.second * height
+
+                canvas.drawCircle(x, y, dp(9).toFloat(), whitePaint)
+                canvas.drawCircle(x, y, dp(6).toFloat(), pointPaint)
+            }
+
+            if (marks.isEmpty()) {
+                canvas.drawText(
+                    "Файл карты не найден",
+                    width / 2f,
+                    height / 2f - dp(10),
+                    textPaint
+                )
+
+                canvas.drawText(
+                    "Показана схема расположения точек",
+                    width / 2f,
+                    height / 2f + dp(14),
+                    subTextPaint
+                )
+            }
+        }
+
+        private fun drawGrid(canvas: Canvas) {
+            val step = dp(54)
+
+            var x = 0
+            while (x < width) {
+                canvas.drawLine(
+                    x.toFloat(),
+                    0f,
+                    x.toFloat(),
+                    height.toFloat(),
+                    linePaint
+                )
+                x += step
+            }
+
+            var y = 0
+            while (y < height) {
+                canvas.drawLine(
+                    0f,
+                    y.toFloat(),
+                    width.toFloat(),
+                    y.toFloat(),
+                    linePaint
+                )
+                y += step
+            }
+        }
+
+        private fun normalizeMarks(source: List<Mark>): List<Pair<Float, Float>> {
+            if (source.size == 1) {
+                return listOf(0.5f to 0.5f)
+            }
+
+            val minLat = source.minOf { it.latitude }
+            val maxLat = source.maxOf { it.latitude }
+            val minLon = source.minOf { it.longitude }
+            val maxLon = source.maxOf { it.longitude }
+
+            val latRange = (maxLat - minLat).takeIf { it > 0.0 } ?: 1.0
+            val lonRange = (maxLon - minLon).takeIf { it > 0.0 } ?: 1.0
+
+            return source.reversed().map { mark ->
+                val x = ((mark.longitude - minLon) / lonRange).toFloat()
+                val y = (1f - ((mark.latitude - minLat) / latRange).toFloat())
+
+                val paddedX = 0.12f + x * 0.76f
+                val paddedY = 0.12f + y * 0.76f
+
+                paddedX to paddedY
+            }
+        }
     }
 }

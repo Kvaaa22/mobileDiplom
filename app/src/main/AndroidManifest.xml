@@ -5,11 +5,11 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- Нужно для будущей загрузки карты/API. Сама офлайн-карта после скачивания работает без сети. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <uses-feature android:name="android.hardware.location.gps" />
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -21,7 +21,7 @@
         android:theme="@style/Theme.AppCompat.Light">
 
         <activity
-            android:name=".OfflineMapActivity"
+            android:name=".MainActivity"
             android:exported="true">
 
             <intent-filter>
@@ -31,10 +31,10 @@
 
         </activity>
 
-        <activity android:name=".MainActivity" />
         <activity android:name=".MarkListActivity" />
         <activity android:name=".EditMarkActivity" />
         <activity android:name=".SyncActivity" />
+        <activity android:name=".LoginActivity" />
 
     </application>
 
