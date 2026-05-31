@@ -8,18 +8,31 @@ object MapAvailability {
     fun getDownloadedMapPath(context: Context): String? {
         val database = MapPackageDatabase(context)
         val mapPackage = database.getDownloadedPackage()
+        val path = mapPackage?.localPath
 
-        val path = mapPackage?.localPath ?: return null
-        val file = File(path)
+        if (path != null) {
+            val file = File(path)
 
-        return if (file.exists()) {
-            file.absolutePath
-        } else {
-            null
+            if (file.exists() && file.length() > 0L) {
+                return file.absolutePath
+            }
         }
+
+        return findLocalDevelopmentMap(context)
     }
 
     fun hasDownloadedMap(context: Context): Boolean {
         return getDownloadedMapPath(context) != null
+    }
+
+    private fun findLocalDevelopmentMap(context: Context): String? {
+        return MapStorage.mapsDir(context)
+            .listFiles()
+            ?.firstOrNull { file ->
+                file.isFile &&
+                        file.name.endsWith(".map", ignoreCase = true) &&
+                        file.length() > 0L
+            }
+            ?.absolutePath
     }
 }

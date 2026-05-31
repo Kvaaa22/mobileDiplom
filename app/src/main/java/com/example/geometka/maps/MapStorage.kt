@@ -48,7 +48,9 @@ object MapStorage {
         }
 
         return digest.digest()
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .joinToString("") { byte ->
+                "%02x".format(byte)
+            }
     }
 
     fun deleteOldVersions(
@@ -56,9 +58,9 @@ object MapStorage {
         currentRemoteId: Long,
         currentVersion: Int
     ) {
-        mapsDir(context).listFiles()?.forEach { file ->
-            val currentName = "map_${currentRemoteId}_v$currentVersion.mbtiles"
+        val currentName = "map_${currentRemoteId}_v$currentVersion.map"
 
+        mapsDir(context).listFiles()?.forEach { file ->
             if (
                 file.name.startsWith("map_") &&
                 file.name.endsWith(".map") &&

@@ -28,21 +28,24 @@ import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.OfflineMapConfig
 import com.example.geometka.data.PointType
 import com.example.geometka.helpers.LocationHelper
-import com.example.geometka.helpers.OfflineMapFileManager
+import com.example.geometka.maps.MapAvailability
+import com.example.geometka.maps.MapStorage
 import org.mapsforge.core.model.LatLong
-import org.mapsforge.map.android.graphics.AndroidBitmap
-import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.datastore.MapDataStore
 import org.mapsforge.map.layer.cache.TileCache
 import org.mapsforge.map.layer.overlay.Marker
+import org.mapsforge.map.android.graphics.AndroidBitmap
+import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 import org.mapsforge.map.layer.renderer.TileRendererLayer
 import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.InternalRenderTheme
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
 
 class MainActivity : Activity() {
 
@@ -191,7 +194,7 @@ class MainActivity : Activity() {
 
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(74)
+                dp(84)
             ).apply {
                 bottomMargin = dp(10)
             }
@@ -219,7 +222,15 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         }
 
+        pointsInfoText = TextView(this).apply {
+            text = "Сохраненных точек: ${database.getAllMarks().size}"
+            textSize = 11f
+            setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
+            setPadding(0, dp(3), 0, 0)
+        }
+
         textBlock.addView(addCardSubtitle)
+        textBlock.addView(pointsInfoText)
 
         val plusButton = TextView(this).apply {
             text = "+"
@@ -316,10 +327,11 @@ class MainActivity : Activity() {
 
         mapContainer.removeAllViews()
 
-        val mapFile = OfflineMapFileManager.getMapFileOrNull(this)
+        val mapPath = MapAvailability.getDownloadedMapPath(this)
+        val mapFile = mapPath?.let { File(it) }
         val hasInternet = locationHelper.hasInternetConnection()
 
-        if (mapFile != null) {
+        if (mapFile != null && mapFile.exists() && mapFile.length() > 0L) {
             val created = runCatching {
                 createMapsforgeMapView(mapFile)
             }.onFailure { error ->
@@ -338,6 +350,7 @@ class MainActivity : Activity() {
                 )
 
                 addAccuracyChip()
+
                 subtitleText.text = if (hasInternet) {
                     "Карта загружена · сеть доступна"
                 } else {
@@ -356,15 +369,16 @@ class MainActivity : Activity() {
         }
 
         mapContainer.addView(createMapPlaceholder())
+        updatePointsInfo()
     }
 
-    private fun createMapsforgeMapView(mapFile: java.io.File): MapView {
+    private fun createMapsforgeMapView(mapFile: File): MapView {
         val view = MapView(this).apply {
             isClickable = true
             setBuiltInZoomControls(false)
         }
 
-        tileCache = AndroidUtil.createTileCache(
+        val cache = AndroidUtil.createTileCache(
             this,
             "mapsforge-cache",
             view.model.displayModel.tileSize,
@@ -372,13 +386,19 @@ class MainActivity : Activity() {
             view.model.frameBufferModel.overdrawFactor
         )
 
+        tileCache = cache
+
         val mapFileStore = MapFile(mapFile)
         mapDataStore = mapFileStore
 
         val boundingBox = mapFileStore.boundingBox()
 
+        Log.d(TAG, "Map file: ${mapFile.absolutePath}")
+        Log.d(TAG, "Map size: ${mapFile.length()}")
+        Log.d(TAG, "Map bounding box: $boundingBox")
+
         val rendererLayer = TileRendererLayer(
-            tileCache,
+            cache,
             mapFileStore,
             view.model.mapViewPosition,
             AndroidGraphicFactory.INSTANCE
@@ -389,22 +409,11 @@ class MainActivity : Activity() {
         tileRendererLayer = rendererLayer
         view.layerManager.layers.add(rendererLayer)
 
-        val marks = database.getAllMarks()
+        val centerLat = (boundingBox.minLatitude + boundingBox.maxLatitude) / 2.0
+        val centerLon = (boundingBox.minLongitude + boundingBox.maxLongitude) / 2.0
 
-        if (marks.isNotEmpty()) {
-            val newest = marks.first()
-            view.model.mapViewPosition.setCenter(
-                LatLong(newest.latitude, newest.longitude)
-            )
-        } else {
-            val centerLat = (boundingBox.minLatitude + boundingBox.maxLatitude) / 2.0
-            val centerLon = (boundingBox.minLongitude + boundingBox.maxLongitude) / 2.0
-
-            view.model.mapViewPosition.setCenter(
-                LatLong(centerLat, centerLon)
-            )
-        }
-
+        view.model.mapViewPosition.setMapLimit(boundingBox)
+        view.model.mapViewPosition.setCenter(LatLong(centerLat, centerLon))
         view.model.mapViewPosition.setZoomLevel(OfflineMapConfig.DEFAULT_ZOOM)
 
         return view
@@ -443,7 +452,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 Toast.makeText(
                     this@MainActivity,
-                    "Файл карты должен лежать в: ${OfflineMapFileManager.getExpectedMapPath(this@MainActivity)}",
+                    "Файл карты должен лежать в: ${MapStorage.mapsDir(this@MainActivity).absolutePath}",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -529,6 +538,12 @@ class MainActivity : Activity() {
         }
 
         map.invalidate()
+    }
+
+    private fun updatePointsInfo() {
+        if (this::pointsInfoText.isInitialized) {
+            pointsInfoText.text = "Сохраненных точек: ${database.getAllMarks().size}"
+        }
     }
 
     private fun colorForMark(mark: Mark): Int {
@@ -718,7 +733,9 @@ class MainActivity : Activity() {
                     notes = notesInput.text.toString().trim().ifEmpty { null }
                 )
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton("Отмена") { _, _ ->
+                setupCallbacks()
+            }
             .show()
     }
 
@@ -867,10 +884,6 @@ class MainActivity : Activity() {
         super.onResume()
         refreshMapScreen()
         requestCurrentLocationIfPossible()
-    }
-
-    override fun onPause() {
-        super.onPause()
     }
 
     override fun onDestroy() {
