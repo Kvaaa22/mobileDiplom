@@ -655,18 +655,16 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             setPadding(0, dp(7), 0, dp(8))
 
-            addView(createMenuItem("⌖", "Новая точка", selected = true) {
-                // Уже здесь
+            addView(createMenuItem("⌖", "Карта", selected = false) {
+                startActivity(Intent(this@MainActivity, OfflineMapActivity::class.java))
             })
 
             addView(createMenuItem("●", "Точки", selected = false) {
                 startActivity(Intent(this@MainActivity, MarkListActivity::class.java))
-                finish()
             })
 
             addView(createMenuItem("⇄", "Синхр.", selected = false) {
                 startActivity(Intent(this@MainActivity, SyncActivity::class.java))
-                finish()
             })
         }
     }
