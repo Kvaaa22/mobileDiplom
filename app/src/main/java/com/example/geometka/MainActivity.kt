@@ -14,10 +14,12 @@ import android.provider.Settings
 import android.text.InputType
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -66,6 +68,7 @@ class MainActivity : Activity() {
 
     private val markLayers = mutableListOf<Marker>()
     private var currentLocationMarker: Marker? = null
+    private var markInfoBubble: TextView? = null
 
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
@@ -83,7 +86,12 @@ class MainActivity : Activity() {
         const val TEXT_MUTED = "#9AA69E"
         const val RED = "#D73620"
         const val ORANGE = "#F28C28"
+        const val YELLOW = "#F2C94C"
         const val BLUE = "#2F80ED"
+        const val BORDER_WHITE = "#FFFFFF"
+        const val GRAY = "#8A8A8A"
+        const val BROWN = "#8B5A2B"
+        const val LEGEND_BACKGROUND = "#E9EFE7"
         const val MAP_PLACEHOLDER = "#DCEAD7"
     }
 
@@ -335,6 +343,7 @@ class MainActivity : Activity() {
         cleanupMapView()
 
         mapContainer.removeAllViews()
+        markInfoBubble = null
 
         val mapPath = MapAvailability.getDownloadedMapPath(this)
         val mapFile = mapPath?.let { File(it) }
@@ -359,6 +368,7 @@ class MainActivity : Activity() {
                 )
 
                 addAccuracyChip()
+                addMapLegend()
 
                 subtitleText.text = if (hasInternet) {
                     "Карта загружена · сеть доступна"
@@ -378,6 +388,7 @@ class MainActivity : Activity() {
         }
 
         mapContainer.addView(createMapPlaceholder())
+        addMapLegend()
         updatePointsInfo()
     }
 
@@ -451,6 +462,71 @@ class MainActivity : Activity() {
         mapContainer.addView(accuracyChip)
     }
 
+    private fun addMapLegend() {
+        val legend = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedDrawable(
+                color = Colors.LEGEND_BACKGROUND,
+                radiusDp = 10,
+                strokeColor = Colors.BORDER,
+                strokeWidthDp = 1
+            )
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            elevation = dp(4).toFloat()
+
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = dp(14)
+                rightMargin = dp(14)
+            }
+
+            addView(createLegendTitle("Интенсивность"))
+            addView(createLegendRow(Colors.RED, "Высокая"))
+            addView(createLegendRow(Colors.ORANGE, "Средняя"))
+            addView(createLegendRow(Colors.YELLOW, "Слабая"))
+            addView(createLegendTitle("Тип пожара"))
+            addView(createLegendRow(Colors.BORDER_WHITE, "Низовой"))
+            addView(createLegendRow(Colors.GRAY, "Верховой"))
+            addView(createLegendRow(Colors.BROWN, "Торфяной"))
+        }
+
+        mapContainer.addView(legend)
+    }
+
+    private fun createLegendTitle(textValue: String): TextView {
+        return TextView(this).apply {
+            text = textValue
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
+            setPadding(0, dp(3), 0, dp(2))
+        }
+    }
+
+    private fun createLegendRow(color: String, label: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(1), 0, dp(1))
+
+            addView(TextView(this@MainActivity).apply {
+                background = circleDrawable(color)
+                layoutParams = LinearLayout.LayoutParams(dp(9), dp(9)).apply {
+                    rightMargin = dp(6)
+                }
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 10f
+                setTextColor(Color.parseColor(Colors.TEXT_SECONDARY))
+            })
+        }
+    }
+
     private fun createMapPlaceholder(): View {
         return PlaceholderMapView(this, database.getAllMarks()).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -466,6 +542,43 @@ class MainActivity : Activity() {
                 ).show()
             }
         }
+    }
+
+    private fun showMarkInfoBubble(mark: Mark, anchorX: Float, anchorY: Float) {
+        hideMarkInfoBubble()
+
+        val bubble = TextView(this).apply {
+            text = "ID: ${mark.id}\n${mark.pointType.label}\n${mark.getFormattedDate().substringAfter(" ")}"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
+            background = roundedDrawable(
+                color = Colors.CARD,
+                radiusDp = 8,
+                strokeColor = Colors.BORDER,
+                strokeWidthDp = 1
+            )
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            elevation = dp(6).toFloat()
+
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = anchorX.toInt().coerceAtLeast(dp(8)) + dp(12)
+                topMargin = (anchorY.toInt() - dp(46)).coerceAtLeast(dp(8))
+            }
+        }
+
+        markInfoBubble = bubble
+        mapContainer.addView(bubble)
+    }
+
+    private fun hideMarkInfoBubble() {
+        markInfoBubble?.let { bubble ->
+            mapContainer.removeView(bubble)
+        }
+        markInfoBubble = null
     }
 
     private fun setupCallbacks() {
@@ -512,9 +625,12 @@ class MainActivity : Activity() {
             map.layerManager.layers.remove(it)
         }
 
-        val marker = Marker(
+            val marker = Marker(
             position,
-            createCircleBitmap(Color.parseColor(Colors.BLUE), dp(18)),
+            createCircleBitmap(
+                fillColor = Color.parseColor(Colors.BLUE),
+                sizePx = dp(18)
+            ),
             0,
             -dp(9)
         )
@@ -535,12 +651,27 @@ class MainActivity : Activity() {
         pointsInfoText.text = "Сохраненных точек: ${marks.size}"
 
         marks.forEach { mark ->
-            val marker = Marker(
+            val marker = object : Marker(
                 LatLong(mark.latitude, mark.longitude),
-                createCircleBitmap(colorForMark(mark), dp(22)),
+                createCircleBitmap(
+                    fillColor = colorForMark(mark),
+                    sizePx = dp(22),
+                    borderColor = borderColorForMark(mark)
+                ),
                 0,
                 -dp(11)
-            )
+            ) {
+                override fun onTap(
+                    tapLatLong: LatLong?,
+                    layerXY: org.mapsforge.core.model.Point?,
+                    tapXY: org.mapsforge.core.model.Point?
+                ): Boolean {
+                    val x = tapXY?.x?.toFloat() ?: 0f
+                    val y = tapXY?.y?.toFloat() ?: 0f
+                    showMarkInfoBubble(mark, x, y)
+                    return true
+                }
+            }
 
             markLayers.add(marker)
             map.layerManager.layers.add(marker)
@@ -556,10 +687,18 @@ class MainActivity : Activity() {
     }
 
     private fun colorForMark(mark: Mark): Int {
-        return when (mark.pointType) {
-            PointType.FRONT -> Color.parseColor(Colors.RED)
-            PointType.FLANK -> Color.parseColor(Colors.ORANGE)
-            PointType.REAR -> Color.parseColor(Colors.GREEN)
+        return when (mark.intensity) {
+            FireIntensity.HIGH -> Color.parseColor(Colors.RED)
+            FireIntensity.MEDIUM -> Color.parseColor(Colors.ORANGE)
+            FireIntensity.LOW -> Color.parseColor(Colors.YELLOW)
+        }
+    }
+
+    private fun borderColorForMark(mark: Mark): Int {
+        return when (mark.typeOfFire) {
+            FireType.GROUND -> Color.parseColor(Colors.BORDER_WHITE)
+            FireType.CROWN -> Color.parseColor(Colors.GRAY)
+            FireType.PEAT -> Color.parseColor(Colors.BROWN)
         }
     }
 
@@ -753,29 +892,34 @@ class MainActivity : Activity() {
         selectedValue: T,
         chipMap: MutableMap<T, TextView>,
         onSelect: (T) -> Unit
-    ): LinearLayout {
-        return LinearLayout(this).apply {
+    ): View {
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+        }
 
-            values.forEach { value ->
-                val label = when (value) {
-                    is PointType -> value.label
-                    is FireIntensity -> value.label
-                    is FireType -> value.label
-                    else -> value.toString()
-                }
-
-                val chip = createChoiceChip(
-                    textValue = label,
-                    selected = value == selectedValue
-                ) {
-                    onSelect(value)
-                }
-
-                chipMap[value] = chip
-                addView(chip)
+        values.forEach { value ->
+            val label = when (value) {
+                is PointType -> value.label
+                is FireIntensity -> value.label
+                is FireType -> value.label
+                else -> value.toString()
             }
+
+            val chip = createChoiceChip(
+                textValue = label,
+                selected = value == selectedValue
+            ) {
+                onSelect(value)
+            }
+
+            chipMap[value] = chip
+            row.addView(chip)
+        }
+
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
         }
     }
 
@@ -802,9 +946,8 @@ class MainActivity : Activity() {
             updateChipStyle(this, selected)
 
             layoutParams = LinearLayout.LayoutParams(
-                0,
-                dp(32),
-                1f
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(32)
             ).apply {
                 rightMargin = dp(7)
             }
@@ -943,8 +1086,9 @@ class MainActivity : Activity() {
     }
 
     private fun createCircleBitmap(
-        color: Int,
-        sizePx: Int
+        fillColor: Int,
+        sizePx: Int,
+        borderColor: Int = Color.WHITE
     ): org.mapsforge.core.graphics.Bitmap {
         val androidBitmap = android.graphics.Bitmap.createBitmap(
             sizePx,
@@ -955,7 +1099,7 @@ class MainActivity : Activity() {
         val canvas = Canvas(androidBitmap)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.WHITE
+            this.color = borderColor
         }
 
         canvas.drawCircle(
@@ -965,7 +1109,7 @@ class MainActivity : Activity() {
             paint
         )
 
-        paint.color = color
+        paint.color = fillColor
 
         canvas.drawCircle(
             sizePx / 2f,
@@ -1042,6 +1186,32 @@ class MainActivity : Activity() {
             color = Color.WHITE
         }
 
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (event.action != MotionEvent.ACTION_UP || marks.isEmpty()) {
+                return true
+            }
+
+            val points = normalizeMarks(marks)
+            val pairedMarks = marks.reversed()
+            val hitRadius = dp(24)
+            val hitRadiusSquared = hitRadius * hitRadius
+
+            points.forEachIndexed { index, point ->
+                val pointX = point.first * width
+                val pointY = point.second * height
+                val dx = event.x - pointX
+                val dy = event.y - pointY
+
+                if (dx * dx + dy * dy <= hitRadiusSquared) {
+                    showMarkInfoBubble(pairedMarks[index], pointX, pointY)
+                    return true
+                }
+            }
+
+            hideMarkInfoBubble()
+            return false
+        }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
 
@@ -1073,11 +1243,14 @@ class MainActivity : Activity() {
                 )
             }
 
-            points.forEach { point ->
+            points.forEachIndexed { index, point ->
                 val x = point.first * width
                 val y = point.second * height
+                val mark = marks.reversed().getOrNull(index)
 
+                whitePaint.color = mark?.let { borderColorForMark(it) } ?: Color.WHITE
                 canvas.drawCircle(x, y, dp(9).toFloat(), whitePaint)
+                pointPaint.color = mark?.let { colorForMark(it) } ?: Color.parseColor(Colors.RED)
                 canvas.drawCircle(x, y, dp(6).toFloat(), pointPaint)
             }
 
