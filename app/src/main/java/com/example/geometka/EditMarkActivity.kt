@@ -121,6 +121,10 @@ class EditMarkActivity : Activity() {
             saveChanges()
         })
 
+        contentLayout.addView(createDangerButton("Удалить точку") {
+            showDeleteDialog()
+        })
+
         scrollView.addView(contentLayout)
         rootLayout.addView(scrollView)
 
@@ -399,6 +403,35 @@ class EditMarkActivity : Activity() {
         }
     }
 
+    private fun createDangerButton(
+        textValue: String,
+        onClick: () -> Unit
+    ): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor(Colors.DANGER))
+            isAllCaps = false
+            background = roundedDrawable(
+                color = Colors.CARD,
+                radiusDp = 9,
+                strokeColor = Colors.DANGER,
+                strokeWidthDp = 1
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+            ).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(8)
+            }
+            setOnClickListener {
+                onClick()
+            }
+        }
+    }
+
     private fun saveChanges() {
         val updatedMark = mark!!.copy(
             pointType = selectedPointType,
@@ -414,6 +447,29 @@ class EditMarkActivity : Activity() {
             overridePendingTransition(0, 0)
         } else {
             Toast.makeText(this, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showDeleteDialog() {
+        val currentMark = mark ?: return
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Удалить точку?")
+            .setMessage("Точка \"${currentMark.name}\" будет удалена без возможности отмены.")
+            .setPositiveButton("Удалить") { _, _ ->
+                deleteCurrentMark(currentMark.id)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun deleteCurrentMark(markId: Long) {
+        if (database.deleteMark(markId) > 0) {
+            Toast.makeText(this, "Точка удалена", Toast.LENGTH_SHORT).show()
+            finish()
+            overridePendingTransition(0, 0)
+        } else {
+            Toast.makeText(this, "Ошибка удаления точки", Toast.LENGTH_SHORT).show()
         }
     }
 

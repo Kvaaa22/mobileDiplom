@@ -1218,6 +1218,7 @@ class MainActivity : Activity() {
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
 
             drawGrid(canvas)
+            drawScale(canvas)
 
             val points = if (marks.isNotEmpty()) {
                 normalizeMarks(marks)
@@ -1268,6 +1269,86 @@ class MainActivity : Activity() {
                     height / 2f + dp(14),
                     subTextPaint
                 )
+            }
+        }
+
+        private fun drawScale(canvas: Canvas) {
+            val left = dp(14).toFloat()
+            val bottom = height - dp(16).toFloat()
+
+            if (marks.size < 2) {
+                canvas.drawText(
+                    "Масштаб: схема",
+                    left + dp(46),
+                    bottom,
+                    subTextPaint.apply { textAlign = Paint.Align.LEFT }
+                )
+                subTextPaint.textAlign = Paint.Align.CENTER
+                return
+            }
+
+            val metersPerPixel = estimateMetersPerPixel() ?: return
+            val targetWidthPx = dp(96).coerceAtMost((width * 0.34f).toInt()).coerceAtLeast(dp(56))
+            val rawDistanceMeters = metersPerPixel * targetWidthPx
+            val niceDistanceMeters = niceScaleDistance(rawDistanceMeters)
+            val scaleWidthPx = (niceDistanceMeters / metersPerPixel).toFloat()
+
+            val y = bottom - dp(10)
+            val x2 = left + scaleWidthPx
+
+            linePaint.strokeWidth = dp(3).toFloat()
+            linePaint.color = Color.parseColor(Colors.TEXT_PRIMARY)
+            canvas.drawLine(left, y, x2, y, linePaint)
+            canvas.drawLine(left, y - dp(4), left, y + dp(4), linePaint)
+            canvas.drawLine(x2, y - dp(4), x2, y + dp(4), linePaint)
+
+            subTextPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(
+                formatScaleDistance(niceDistanceMeters),
+                left,
+                y - dp(8),
+                subTextPaint
+            )
+            subTextPaint.textAlign = Paint.Align.CENTER
+
+            linePaint.color = Color.parseColor("#B8CEB4")
+            linePaint.strokeWidth = dp(2).toFloat()
+        }
+
+        private fun estimateMetersPerPixel(): Double? {
+            if (width <= 0 || marks.size < 2) return null
+
+            val minLat = marks.minOf { it.latitude }
+            val maxLat = marks.maxOf { it.latitude }
+            val minLon = marks.minOf { it.longitude }
+            val maxLon = marks.maxOf { it.longitude }
+            val lonRange = maxLon - minLon
+            if (lonRange <= 0.0) return null
+
+            val centerLatRadians = Math.toRadians((minLat + maxLat) / 2.0)
+            val metersPerDegreeLon = 111_320.0 * kotlin.math.cos(centerLatRadians)
+            val visibleDataWidthPx = width * 0.76
+
+            return lonRange * metersPerDegreeLon / visibleDataWidthPx
+        }
+
+        private fun niceScaleDistance(distanceMeters: Double): Double {
+            val candidates = listOf(
+                1.0, 2.0, 5.0,
+                10.0, 20.0, 50.0,
+                100.0, 200.0, 500.0,
+                1_000.0, 2_000.0, 5_000.0,
+                10_000.0, 20_000.0, 50_000.0
+            )
+
+            return candidates.lastOrNull { it <= distanceMeters } ?: candidates.first()
+        }
+
+        private fun formatScaleDistance(distanceMeters: Double): String {
+            return if (distanceMeters >= 1_000.0) {
+                "Масштаб: %.0f км".format(distanceMeters / 1_000.0)
+            } else {
+                "Масштаб: %.0f м".format(distanceMeters)
             }
         }
 

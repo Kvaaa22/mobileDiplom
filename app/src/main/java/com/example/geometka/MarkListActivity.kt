@@ -11,6 +11,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import com.example.geometka.data.FireIntensity
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.PointType
@@ -60,6 +61,7 @@ class MarkListActivity : Activity() {
 
         const val RED = "#D23A2E"
         const val ORANGE = "#E26A1B"
+        const val YELLOW = "#F2C94C"
         const val CHIP_ORANGE = "#FCE8D7"
     }
 
@@ -498,7 +500,7 @@ class MarkListActivity : Activity() {
         }
 
         val redDot = TextView(this).apply {
-            background = circleDrawable(Colors.RED)
+            background = circleDrawable(colorForMark(mark))
             layoutParams = LinearLayout.LayoutParams(dp(14), dp(14)).apply {
                 rightMargin = dp(12)
             }
@@ -610,6 +612,14 @@ class MarkListActivity : Activity() {
             shape = GradientDrawable.RECTANGLE
             setColor(Color.parseColor(color))
             cornerRadius = dp(15).toFloat()
+        }
+    }
+
+    private fun colorForMark(mark: Mark): String {
+        return when (mark.intensity) {
+            FireIntensity.HIGH -> Colors.RED
+            FireIntensity.MEDIUM -> Colors.ORANGE
+            FireIntensity.LOW -> Colors.YELLOW
         }
     }
 
