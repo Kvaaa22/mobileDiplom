@@ -30,6 +30,7 @@ import com.example.geometka.data.PointType
 import com.example.geometka.helpers.LocationHelper
 import com.example.geometka.maps.MapAvailability
 import com.example.geometka.maps.MapStorage
+import com.example.geometka.ui.ScreenChrome
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
@@ -98,6 +99,7 @@ class MainActivity : Activity() {
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.WHITE
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+        ScreenChrome.apply(this)
 
         locationHelper = LocationHelper(this)
         database = MarkDatabase(this)
@@ -236,6 +238,7 @@ class MainActivity : Activity() {
             text = "+"
             textSize = 34f
             gravity = Gravity.CENTER
+            includeFontPadding = false
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             background = circleDrawable(Colors.RED)
@@ -266,18 +269,24 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.WHITE)
-            setPadding(0, dp(7), 0, dp(8))
+            setPadding(0, dp(10), 0, dp(22))
 
             addView(createMenuItem("⌖", "Карта", selected = true) {
                 refreshMapScreen()
             })
 
             addView(createMenuItem("●", "Точки", selected = false) {
-                startActivity(Intent(this@MainActivity, MarkListActivity::class.java))
+                ScreenChrome.navigateWithoutJump(
+                    this@MainActivity,
+                    Intent(this@MainActivity, MarkListActivity::class.java)
+                )
             })
 
             addView(createMenuItem("⇄", "Синхр.", selected = false) {
-                startActivity(Intent(this@MainActivity, SyncActivity::class.java))
+                ScreenChrome.navigateWithoutJump(
+                    this@MainActivity,
+                    Intent(this@MainActivity, SyncActivity::class.java)
+                )
             })
         }
     }
@@ -882,6 +891,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        ScreenChrome.apply(this)
         refreshMapScreen()
         requestCurrentLocationIfPossible()
     }

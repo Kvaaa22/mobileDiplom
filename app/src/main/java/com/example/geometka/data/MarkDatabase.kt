@@ -3,6 +3,7 @@ package com.example.geometka.data
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class MarkDatabase(context: Context) : SQLiteOpenHelper(
@@ -32,7 +33,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         private const val COLUMN_SYNC_STATUS = "sync_status"
     }
 
-    override fun onCreate(db: android.database.sqlite.SQLiteDatabase) {
+    override fun onCreate(db: SQLiteDatabase) {
         val createTable = """
             CREATE TABLE $TABLE_MARKS (
                 $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,12 +55,23 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     override fun onUpgrade(
-        db: android.database.sqlite.SQLiteDatabase,
+        db: SQLiteDatabase,
         oldVersion: Int,
         newVersion: Int
     ) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_MARKS")
-        onCreate(db)
+        if (!tableExists(db, TABLE_MARKS)) {
+            onCreate(db)
+            return
+        }
+
+        addColumnIfMissing(db, COLUMN_MAP_ID, "INTEGER DEFAULT ${OfflineMapConfig.DEFAULT_MAP_ID}")
+        addColumnIfMissing(db, COLUMN_POINT_TYPE, "TEXT NOT NULL DEFAULT '${PointType.FRONT.name}'")
+        addColumnIfMissing(db, COLUMN_INTENSITY, "TEXT NOT NULL DEFAULT '${FireIntensity.LOW.name}'")
+        addColumnIfMissing(db, COLUMN_FIRE_TYPE, "TEXT NOT NULL DEFAULT '${FireType.GROUND.name}'")
+        addColumnIfMissing(db, COLUMN_NOTES, "TEXT")
+        addColumnIfMissing(db, COLUMN_CREATED_AT, "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, COLUMN_ACCURACY, "REAL")
+        addColumnIfMissing(db, COLUMN_SYNC_STATUS, "TEXT NOT NULL DEFAULT '${SyncStatus.LOCAL.name}'")
     }
 
     fun insertMark(mark: Mark): Long {
@@ -240,6 +252,45 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         val index = getColumnIndex(columnName)
         if (index == -1 || isNull(index)) return null
         return getFloat(index)
+    }
+
+    private fun tableExists(db: SQLiteDatabase, tableName: String): Boolean {
+        val cursor = db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            arrayOf(tableName)
+        )
+
+        cursor.use {
+            return it.moveToFirst()
+        }
+    }
+
+    private fun addColumnIfMissing(
+        db: SQLiteDatabase,
+        columnName: String,
+        definition: String
+    ) {
+        if (columnExists(db, TABLE_MARKS, columnName)) return
+
+        db.execSQL("ALTER TABLE $TABLE_MARKS ADD COLUMN $columnName $definition")
+    }
+
+    private fun columnExists(
+        db: SQLiteDatabase,
+        tableName: String,
+        columnName: String
+    ): Boolean {
+        val cursor = db.rawQuery("PRAGMA table_info($tableName)", null)
+
+        cursor.use {
+            while (it.moveToNext()) {
+                if (it.getString(it.getColumnIndexOrThrow("name")) == columnName) {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(

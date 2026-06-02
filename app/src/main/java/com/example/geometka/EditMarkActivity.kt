@@ -56,6 +56,7 @@ class EditMarkActivity : Activity() {
         if (markId == -1L) {
             Toast.makeText(this, "Ошибка загрузки метки", Toast.LENGTH_SHORT).show()
             finish()
+            overridePendingTransition(0, 0)
             return
         }
 
@@ -63,6 +64,7 @@ class EditMarkActivity : Activity() {
         if (mark == null) {
             Toast.makeText(this, "Метка не найдена", Toast.LENGTH_SHORT).show()
             finish()
+            overridePendingTransition(0, 0)
             return
         }
 
@@ -91,7 +93,7 @@ class EditMarkActivity : Activity() {
 
         val contentLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(20))
+            setPadding(dp(20), dp(16), dp(20), 0)
         }
 
         val m = mark!!
@@ -409,6 +411,7 @@ class EditMarkActivity : Activity() {
         if (database.updateMark(updatedMark) > 0) {
             Toast.makeText(this, "Изменения сохранены", Toast.LENGTH_SHORT).show()
             finish()
+            overridePendingTransition(0, 0)
         } else {
             Toast.makeText(this, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
         }
@@ -441,4 +444,5 @@ class EditMarkActivity : Activity() {
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
     }
+
 }

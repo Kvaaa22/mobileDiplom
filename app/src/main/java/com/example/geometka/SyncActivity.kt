@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.SyncStatus
+import com.example.geometka.ui.ScreenChrome
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,6 +56,7 @@ class SyncActivity : Activity() {
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.WHITE
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+        ScreenChrome.apply(this)
 
         setContentView(createLayout())
         
@@ -91,7 +93,7 @@ class SyncActivity : Activity() {
 
         val contentLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(18))
+            setPadding(dp(18), dp(14), dp(18), 0)
         }
 
         contentLayout.addView(createStatusCard())
@@ -449,16 +451,20 @@ class SyncActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.WHITE)
-            setPadding(0, dp(7), 0, dp(8))
+            setPadding(0, dp(10), 0, dp(22))
 
-            addView(createMenuItem("⌖", "Новая точка", selected = false) {
-                startActivity(Intent(this@SyncActivity, MainActivity::class.java))
-                finish()
+            addView(createMenuItem("⌖", "Карта", selected = false) {
+                ScreenChrome.navigateWithoutJump(
+                    this@SyncActivity,
+                    Intent(this@SyncActivity, MainActivity::class.java)
+                )
             })
 
             addView(createMenuItem("●", "Точки", selected = false) {
-                startActivity(Intent(this@SyncActivity, MarkListActivity::class.java))
-                finish()
+                ScreenChrome.navigateWithoutJump(
+                    this@SyncActivity,
+                    Intent(this@SyncActivity, MarkListActivity::class.java)
+                )
             })
 
             addView(createMenuItem("⇄", "Синхр.", selected = true) {
@@ -529,5 +535,10 @@ class SyncActivity : Activity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ScreenChrome.apply(this)
     }
 }

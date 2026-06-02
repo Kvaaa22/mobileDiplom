@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.*
 import com.example.geometka.auth.AppSession
 import com.example.geometka.maps.MapDownloadScheduler
+import com.example.geometka.ui.ScreenChrome
 class LoginActivity : Activity() {
 
     private lateinit var loginInput: EditText
@@ -33,6 +34,7 @@ class LoginActivity : Activity() {
 
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.parseColor(Colors.BACKGROUND)
+        ScreenChrome.apply(this)
 
         if (AppSession.isUnlocked(this)) {
             openMainScreen()
@@ -59,7 +61,7 @@ class LoginActivity : Activity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(26), 0, dp(26), 0)
+            setPadding(dp(26), dp(20), dp(26), dp(20))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -261,8 +263,12 @@ class LoginActivity : Activity() {
     }
 
     private fun openMainScreen() {
-        startActivity(Intent(this, MainActivity::class.java))
-        finish()
+        ScreenChrome.navigateWithoutJump(this, Intent(this, MainActivity::class.java))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ScreenChrome.apply(this)
     }
 
     private fun roundedDrawable(

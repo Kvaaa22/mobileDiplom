@@ -51,8 +51,9 @@ class MapPackageDatabase(context: Context) :
         oldVersion: Int,
         newVersion: Int
     ) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_MAP_PACKAGES")
-        onCreate(db)
+        if (!tableExists(db, TABLE_MAP_PACKAGES)) {
+            onCreate(db)
+        }
     }
 
     fun upsertAssignedPackage(mapPackage: MapPackage) {
@@ -183,6 +184,17 @@ class MapPackageDatabase(context: Context) :
     private fun Cursor.getNullableLong(columnName: String): Long? {
         val index = getColumnIndexOrThrow(columnName)
         return if (isNull(index)) null else getLong(index)
+    }
+
+    private fun tableExists(db: SQLiteDatabase, tableName: String): Boolean {
+        val cursor = db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            arrayOf(tableName)
+        )
+
+        cursor.use {
+            return it.moveToFirst()
+        }
     }
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(

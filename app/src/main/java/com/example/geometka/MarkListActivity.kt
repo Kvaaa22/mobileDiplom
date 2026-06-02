@@ -14,6 +14,7 @@ import android.widget.*
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.PointType
+import com.example.geometka.ui.ScreenChrome
 
 class MarkListActivity : Activity() {
 
@@ -44,7 +45,7 @@ class MarkListActivity : Activity() {
     }
 
     private object Colors {
-        const val GREEN_DARK = "#0F3D22"
+        const val GREEN_DARK = "#0B2A18"
         const val GREEN = "#155E32"
         const val GREEN_LIGHT = "#EAF3EB"
         const val GREEN_TEXT = "#145A31"
@@ -66,8 +67,8 @@ class MarkListActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         // Убираем нижний ряд системных кнопок навигации
-        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+        ScreenChrome.apply(this)
+        window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
 
         database = MarkDatabase(this)
 
@@ -343,12 +344,14 @@ class MarkListActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.WHITE)
-            setPadding(0, dp(7), 0, dp(8))
+            setPadding(0, dp(10), 0, dp(22))
         }
 
-        nav.addView(createNavItem("⌖", "Новая точка", selected = false) {
-            startActivity(Intent(this, MainActivity::class.java))
-            finish()
+        nav.addView(createNavItem("⌖", "Карта", selected = false) {
+            ScreenChrome.navigateWithoutJump(
+                this@MarkListActivity,
+                Intent(this@MarkListActivity, MainActivity::class.java)
+            )
         })
 
         nav.addView(createNavItem("●", "Точки", selected = true) {
@@ -356,8 +359,10 @@ class MarkListActivity : Activity() {
         })
 
         nav.addView(createNavItem("⇄", "Синхр.", selected = false) {
-            startActivity(Intent(this@MarkListActivity, SyncActivity::class.java))
-            finish()
+            ScreenChrome.navigateWithoutJump(
+                this@MarkListActivity,
+                Intent(this@MarkListActivity, SyncActivity::class.java)
+            )
         })
 
         return nav
@@ -547,6 +552,7 @@ class MarkListActivity : Activity() {
             val intent = Intent(this@MarkListActivity, EditMarkActivity::class.java)
             intent.putExtra("MARK_ID", mark.id)
             startActivity(intent)
+            overridePendingTransition(0, 0)
         }
 
         card.setOnLongClickListener {
@@ -596,8 +602,7 @@ class MarkListActivity : Activity() {
 
     private fun chipDrawable(selected: Boolean, orange: Boolean): GradientDrawable {
         val color = when {
-            selected && orange -> Colors.CHIP_ORANGE
-            selected -> Colors.GREEN_LIGHT
+            selected -> Colors.CHIP_ORANGE
             else -> "#EEF3EE"
         }
 
@@ -634,6 +639,7 @@ class MarkListActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        ScreenChrome.apply(this)
         loadMarks()
     }
 }
