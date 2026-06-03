@@ -8,6 +8,7 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 
 class MapAssignmentClient(
@@ -15,24 +16,22 @@ class MapAssignmentClient(
 ) {
 
     companion object {
-        /*
-         * Замени на адрес своего сервера.
-         * Для ВКР можно оставить заглушку и потом подставить реальный API.
-         */
-        /*
-         * Прототипный ключ клиента.
-         * В реальной системе лучше выдавать отдельный токен устройству после регистрации.
-         */
         private const val APP_CLIENT_TOKEN = "demo-map-client-token"
     }
 
     fun fetchAssignedPackage(): MapPackage? {
         val deviceId = DeviceIdentity.getDeviceId(context)
-
-        val url = URL("${ApiConfig.BASE_URL}/api/mobile/map-assignment?deviceId=$deviceId")
-        val connection = url.openConnection() as HttpURLConnection
+        val urlText = "${ApiConfig.BASE_URL}/api/mobile/map-assignment?deviceId=$deviceId"
+        val connection = URL(urlText).openConnection() as HttpURLConnection
 
         return try {
+            MapDownloadDiagnostics.record(
+                context = context,
+                stage = "Requesting map assignment",
+                detail = "deviceId=$deviceId",
+                url = urlText
+            )
+
             connection.requestMethod = "GET"
             connection.connectTimeout = 15_000
             connection.readTimeout = 15_000
@@ -41,18 +40,51 @@ class MapAssignmentClient(
             setAuthHeader(connection)
 
             when (connection.responseCode) {
-                HttpURLConnection.HTTP_NO_CONTENT -> null
-                HttpURLConnection.HTTP_NOT_FOUND -> null
+                HttpURLConnection.HTTP_NO_CONTENT -> {
+                    MapDownloadDiagnostics.record(
+                        context = context,
+                        stage = "No map assignment",
+                        detail = "HTTP 204 for deviceId=$deviceId",
+                        url = urlText
+                    )
+                    null
+                }
+
+                HttpURLConnection.HTTP_NOT_FOUND -> {
+                    MapDownloadDiagnostics.record(
+                        context = context,
+                        stage = "Map assignment not found",
+                        detail = "HTTP 404 for deviceId=$deviceId",
+                        url = urlText
+                    )
+                    null
+                }
+
                 HttpURLConnection.HTTP_OK -> {
                     val response = connection.inputStream
                         .bufferedReader()
                         .use { it.readText() }
 
+                    MapDownloadDiagnostics.record(
+                        context = context,
+                        stage = "Map assignment received",
+                        detail = "HTTP 200, ${response.length} bytes",
+                        url = urlText
+                    )
+
                     parseMapPackage(response)
                 }
 
                 else -> {
-                    throw IllegalStateException("Сервер вернул код ${connection.responseCode}")
+                    val errorBody = connection.errorStream
+                        ?.bufferedReader()
+                        ?.use { it.readText() }
+                        .orEmpty()
+                        .take(180)
+
+                    throw IllegalStateException(
+                        "Map assignment HTTP ${connection.responseCode}: $errorBody"
+                    )
                 }
             }
         } finally {
@@ -64,10 +96,17 @@ class MapAssignmentClient(
         mapPackage: MapPackage,
         tempFile: File
     ) {
-        val url = URL(mapPackage.downloadUrl)
-        val connection = url.openConnection() as HttpURLConnection
+        val connection = URL(mapPackage.downloadUrl).openConnection() as HttpURLConnection
 
         try {
+            MapDownloadDiagnostics.record(
+                context = context,
+                stage = "Downloading map file",
+                detail = "Package ${mapPackage.remoteId}, version ${mapPackage.version}",
+                url = mapPackage.downloadUrl,
+                progressPercent = 0
+            )
+
             connection.requestMethod = "GET"
             connection.connectTimeout = 20_000
             connection.readTimeout = 60_000
@@ -76,12 +115,26 @@ class MapAssignmentClient(
             setAuthHeader(connection)
 
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw IllegalStateException("Ошибка загрузки карты: ${connection.responseCode}")
+                val errorBody = connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
+                    .take(180)
+
+                throw IllegalStateException(
+                    "Map download HTTP ${connection.responseCode}: $errorBody"
+                )
             }
 
             if (tempFile.exists()) {
                 tempFile.delete()
             }
+
+            val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
+                ?: mapPackage.fileSizeBytes
+                ?: 0L
+            var downloadedBytes = 0L
+            var lastReportedPercent = -1
 
             BufferedInputStream(connection.inputStream).use { input ->
                 FileOutputStream(tempFile).use { output ->
@@ -90,12 +143,43 @@ class MapAssignmentClient(
 
                     while (read != -1) {
                         output.write(buffer, 0, read)
+                        downloadedBytes += read.toLong()
+
+                        val percent = if (totalBytes > 0L) {
+                            ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                        } else {
+                            -1
+                        }
+
+                        if (percent != lastReportedPercent) {
+                            lastReportedPercent = percent
+                            MapDownloadDiagnostics.record(
+                                context = context,
+                                stage = "Downloading map file",
+                                detail = "Downloaded $downloadedBytes of $totalBytes bytes",
+                                url = mapPackage.downloadUrl,
+                                progressPercent = percent,
+                                downloadedBytes = downloadedBytes,
+                                totalBytes = totalBytes
+                            )
+                        }
+
                         read = input.read(buffer)
                     }
 
                     output.flush()
                 }
             }
+
+            MapDownloadDiagnostics.record(
+                context = context,
+                stage = "Map file downloaded",
+                detail = "Temp file ${tempFile.length()} bytes",
+                url = mapPackage.downloadUrl,
+                progressPercent = 100,
+                downloadedBytes = tempFile.length(),
+                totalBytes = totalBytes
+            )
         } finally {
             connection.disconnect()
         }
@@ -108,7 +192,7 @@ class MapAssignmentClient(
             remoteId = obj.getLong("id"),
             name = obj.getString("name"),
             version = obj.getInt("version"),
-            downloadUrl = obj.getString("downloadUrl"),
+            downloadUrl = normalizeLocalServerUrl(obj.getString("downloadUrl")),
             checksumSha256 = obj.optString("checksumSha256").ifBlank { null },
             fileSizeBytes = if (obj.has("fileSizeBytes")) {
                 obj.optLong("fileSizeBytes")
@@ -125,5 +209,31 @@ class MapAssignmentClient(
     private fun setAuthHeader(connection: HttpURLConnection) {
         val accessToken = AppSession.getAccessToken(context) ?: return
         connection.setRequestProperty("Authorization", "Bearer $accessToken")
+    }
+
+    private fun normalizeLocalServerUrl(rawUrl: String): String {
+        return try {
+            val uri = URI(rawUrl)
+            val host = uri.host ?: return rawUrl
+
+            if (host != "localhost" && host != "127.0.0.1") {
+                return rawUrl
+            }
+
+            val baseUri = URI(ApiConfig.BASE_URL)
+            val replacementHost = baseUri.host ?: return rawUrl
+
+            URI(
+                uri.scheme,
+                uri.userInfo,
+                replacementHost,
+                baseUri.port.takeIf { it != -1 } ?: uri.port,
+                uri.path,
+                uri.query,
+                uri.fragment
+            ).toString()
+        } catch (_: Exception) {
+            rawUrl
+        }
     }
 }

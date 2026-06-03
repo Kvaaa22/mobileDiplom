@@ -125,6 +125,29 @@ class MapPackageDatabase(context: Context) :
         }
     }
 
+    fun getLatestPackage(): MapPackage? {
+        val db = readableDatabase
+
+        val cursor = db.query(
+            TABLE_MAP_PACKAGES,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "$COLUMN_DOWNLOADED_AT DESC, $COLUMN_REMOTE_ID DESC",
+            "1"
+        )
+
+        cursor.use {
+            return if (it.moveToFirst()) {
+                cursorToMapPackage(it)
+            } else {
+                null
+            }
+        }
+    }
+
     fun updateStatus(
         remoteId: Long,
         status: MapPackageStatus,

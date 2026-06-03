@@ -46,6 +46,7 @@ class LoginActivity : Activity() {
         ScreenChrome.apply(this)
 
         if (AppSession.isUnlocked(this)) {
+            scheduleMapDownloads()
             openMainScreen()
             return
         }
@@ -222,7 +223,7 @@ class LoginActivity : Activity() {
 
             setOnClickListener {
                 AppSession.unlock(this@LoginActivity, "Демо-аккаунт")
-                MapDownloadScheduler.startAutomaticDownloads(this@LoginActivity)
+                scheduleMapDownloads()
                 openMainScreen()
             }
         }
@@ -276,7 +277,7 @@ class LoginActivity : Activity() {
                         refreshToken = result.refreshToken,
                         userId = result.userId
                     )
-                    MapDownloadScheduler.startAutomaticDownloads(this)
+                    scheduleMapDownloads()
                     openMainScreen()
                 }
             } catch (e: Exception) {
@@ -301,6 +302,11 @@ class LoginActivity : Activity() {
 
     private fun openMainScreen() {
         ScreenChrome.navigateWithoutJump(this, Intent(this, MainActivity::class.java))
+    }
+
+    private fun scheduleMapDownloads() {
+        MapDownloadScheduler.startAutomaticDownloads(this)
+        MapDownloadScheduler.forceDownloadNow(this)
     }
 
     override fun onResume() {

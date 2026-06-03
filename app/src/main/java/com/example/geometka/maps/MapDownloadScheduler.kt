@@ -9,6 +9,12 @@ object MapDownloadScheduler {
     private const val WORK_NAME = "MapDownloadWorker"
 
     fun startAutomaticDownloads(context: Context) {
+        MapDownloadDiagnostics.record(
+            context = context,
+            stage = "Периодическая загрузка карты запланирована",
+            detail = "WorkManager будет проверять назначение карты раз в час"
+        )
+
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -28,6 +34,12 @@ object MapDownloadScheduler {
     }
 
     fun forceDownloadNow(context: Context) {
+        MapDownloadDiagnostics.record(
+            context = context,
+            stage = "Загрузка карты поставлена в очередь",
+            detail = "Ожидание сети и запуска WorkManager"
+        )
+
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()

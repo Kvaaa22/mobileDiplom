@@ -32,6 +32,7 @@ import com.example.geometka.data.PointType
 import com.example.geometka.auth.AppSession
 import com.example.geometka.helpers.LocationHelper
 import com.example.geometka.maps.MapAvailability
+import com.example.geometka.maps.MapDownloadRunner
 import com.example.geometka.maps.MapStorage
 import com.example.geometka.ui.ScreenChrome
 import org.mapsforge.core.model.LatLong
@@ -74,6 +75,7 @@ class MainActivity : Activity() {
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
     private var currentHorizontalAccuracyMeters: Float? = null
+    private var directMapDownloadRunning = false
 
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
@@ -430,6 +432,7 @@ class MainActivity : Activity() {
 
         mapContainer.addView(createMapPlaceholder())
         addMapLegend()
+        startDirectMapDownloadIfNeeded()
         updatePointsInfo()
     }
 
@@ -535,6 +538,29 @@ class MainActivity : Activity() {
         }
 
         mapContainer.addView(legend)
+    }
+
+    private fun startDirectMapDownloadIfNeeded() {
+        if (!directMapDownloadRunning) {
+            startDirectMapDownload(force = false)
+        }
+    }
+
+    private fun startDirectMapDownload(force: Boolean) {
+        if (directMapDownloadRunning && !force) return
+
+        directMapDownloadRunning = true
+
+        Thread {
+            runCatching {
+                MapDownloadRunner.download(applicationContext)
+            }
+
+            runOnUiThread {
+                directMapDownloadRunning = false
+                refreshMapScreen()
+            }
+        }.start()
     }
 
     private fun createLegendTitle(textValue: String): TextView {
