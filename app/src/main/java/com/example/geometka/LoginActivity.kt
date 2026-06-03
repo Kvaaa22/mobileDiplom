@@ -9,14 +9,23 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.*
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.Space
+import android.widget.TextView
+import android.widget.Toast
+import com.example.geometka.api.ApiConfig
+import com.example.geometka.api.AuthApiClient
 import com.example.geometka.auth.AppSession
 import com.example.geometka.maps.MapDownloadScheduler
 import com.example.geometka.ui.ScreenChrome
+
 class LoginActivity : Activity() {
 
     private lateinit var loginInput: EditText
     private lateinit var passwordInput: EditText
+    private lateinit var loginButton: Button
 
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
@@ -102,12 +111,10 @@ class LoginActivity : Activity() {
             )
         }
 
-        val footer = createFooterText()
-
         content.addView(topSpace)
         content.addView(form)
         content.addView(bottomSpace)
-        content.addView(footer)
+        content.addView(createFooterText())
 
         root.addView(topBar)
         root.addView(content)
@@ -161,7 +168,7 @@ class LoginActivity : Activity() {
             )
             setPadding(dp(14), 0, dp(14), 0)
             setSingleLine(true)
-            
+
             inputType = if (isPassword) {
                 InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             } else {
@@ -178,7 +185,7 @@ class LoginActivity : Activity() {
     }
 
     private fun createLoginButton(): Button {
-        return Button(this).apply {
+        loginButton = Button(this).apply {
             text = "Войти"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
@@ -200,6 +207,8 @@ class LoginActivity : Activity() {
                 onLoginClick()
             }
         }
+
+        return loginButton
     }
 
     private fun createDemoText(): TextView {
@@ -248,18 +257,46 @@ class LoginActivity : Activity() {
             return
         }
 
-        // Простая логика проверки (для примера)
-        if (login == "admin" && password == "admin") {
-            AppSession.unlock(this, login)
-            MapDownloadScheduler.startAutomaticDownloads(this)
-            openMainScreen()
-        } else if (login == "user" && password == "1234") {
-            AppSession.unlock(this, login)
-            MapDownloadScheduler.startAutomaticDownloads(this)
-            openMainScreen()
-        } else {
-            Toast.makeText(this, "Неверный логин или пароль", Toast.LENGTH_SHORT).show()
-        }
+        setLoginLoading(true)
+
+        Thread {
+            try {
+                val result = AuthApiClient().login(
+                    login = login,
+                    password = password,
+                    deviceId = ApiConfig.MOBILE_DEVICE_ID
+                )
+                val username = result.username ?: login
+
+                runOnUiThread {
+                    AppSession.unlock(
+                        context = this,
+                        username = username,
+                        accessToken = result.accessToken,
+                        refreshToken = result.refreshToken,
+                        userId = result.userId
+                    )
+                    MapDownloadScheduler.startAutomaticDownloads(this)
+                    openMainScreen()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    setLoginLoading(false)
+                    Toast.makeText(
+                        this,
+                        e.message ?: "Не удалось войти",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun setLoginLoading(isLoading: Boolean) {
+        loginInput.isEnabled = !isLoading
+        passwordInput.isEnabled = !isLoading
+        loginButton.isEnabled = !isLoading
+        loginButton.text = if (isLoading) "Вход..." else "Войти"
     }
 
     private fun openMainScreen() {

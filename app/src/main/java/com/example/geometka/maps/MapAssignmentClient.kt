@@ -1,6 +1,8 @@
 package com.example.geometka.maps
 
 import android.content.Context
+import com.example.geometka.api.ApiConfig
+import com.example.geometka.auth.AppSession
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -17,8 +19,6 @@ class MapAssignmentClient(
          * Замени на адрес своего сервера.
          * Для ВКР можно оставить заглушку и потом подставить реальный API.
          */
-        private const val BASE_URL = "https://example.com"
-
         /*
          * Прототипный ключ клиента.
          * В реальной системе лучше выдавать отдельный токен устройству после регистрации.
@@ -29,7 +29,7 @@ class MapAssignmentClient(
     fun fetchAssignedPackage(): MapPackage? {
         val deviceId = DeviceIdentity.getDeviceId(context)
 
-        val url = URL("$BASE_URL/api/mobile/map-assignment?deviceId=$deviceId")
+        val url = URL("${ApiConfig.BASE_URL}/api/mobile/map-assignment?deviceId=$deviceId")
         val connection = url.openConnection() as HttpURLConnection
 
         return try {
@@ -38,6 +38,7 @@ class MapAssignmentClient(
             connection.readTimeout = 15_000
             connection.setRequestProperty("X-Device-Id", deviceId)
             connection.setRequestProperty("X-App-Client-Token", APP_CLIENT_TOKEN)
+            setAuthHeader(connection)
 
             when (connection.responseCode) {
                 HttpURLConnection.HTTP_NO_CONTENT -> null
@@ -72,6 +73,7 @@ class MapAssignmentClient(
             connection.readTimeout = 60_000
             connection.setRequestProperty("X-Device-Id", DeviceIdentity.getDeviceId(context))
             connection.setRequestProperty("X-App-Client-Token", APP_CLIENT_TOKEN)
+            setAuthHeader(connection)
 
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
                 throw IllegalStateException("Ошибка загрузки карты: ${connection.responseCode}")
@@ -118,5 +120,10 @@ class MapAssignmentClient(
             downloadedAt = null,
             lastError = null
         )
+    }
+
+    private fun setAuthHeader(connection: HttpURLConnection) {
+        val accessToken = AppSession.getAccessToken(context) ?: return
+        connection.setRequestProperty("Authorization", "Bearer $accessToken")
     }
 }

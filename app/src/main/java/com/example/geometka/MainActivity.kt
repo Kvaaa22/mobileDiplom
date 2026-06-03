@@ -29,6 +29,7 @@ import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.OfflineMapConfig
 import com.example.geometka.data.PointType
+import com.example.geometka.auth.AppSession
 import com.example.geometka.helpers.LocationHelper
 import com.example.geometka.maps.MapAvailability
 import com.example.geometka.maps.MapStorage
@@ -153,12 +154,43 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor(Colors.GREEN))
             setPadding(dp(18), dp(20), dp(18), dp(16))
 
-            addView(TextView(this@MainActivity).apply {
+            val topRow = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            topRow.addView(TextView(this@MainActivity).apply {
                 text = OfflineMapConfig.MAP_TITLE
                 textSize = 20f
                 setTextColor(Color.WHITE)
                 typeface = Typeface.DEFAULT_BOLD
+            }, LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            ))
+
+            topRow.addView(TextView(this@MainActivity).apply {
+                text = "Выйти"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = roundedDrawable(
+                    color = Colors.GREEN_DARK,
+                    radiusDp = 14
+                )
+                setPadding(dp(12), 0, dp(12), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dp(30)
+                )
+                setOnClickListener {
+                    logout()
+                }
             })
+
+            addView(topRow)
 
             subtitleText = TextView(this@MainActivity).apply {
                 text = "Проверка карты"
@@ -169,6 +201,15 @@ class MainActivity : Activity() {
 
             addView(subtitleText)
         }
+    }
+
+    private fun logout() {
+        AppSession.lock(this)
+        val intent = Intent(this, LoginActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        startActivity(intent)
+        overridePendingTransition(0, 0)
     }
 
     private fun createMapBlock(): FrameLayout {
