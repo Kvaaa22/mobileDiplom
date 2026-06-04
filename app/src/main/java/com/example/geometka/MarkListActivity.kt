@@ -420,7 +420,10 @@ class MarkListActivity : Activity() {
     }
 
     private fun updateCounters() {
-        val localCount = allMarks.count { it.syncStatus == com.example.geometka.data.SyncStatus.LOCAL }
+        val localCount = allMarks.count {
+            it.syncStatus == com.example.geometka.data.SyncStatus.LOCAL ||
+                it.syncStatus == com.example.geometka.data.SyncStatus.PENDING
+        }
         val sentCount = allMarks.count { it.syncStatus == com.example.geometka.data.SyncStatus.SYNCED }
 
         localCountText.text = "Локально: $localCount • отправлено: $sentCount"
@@ -445,7 +448,10 @@ class MarkListActivity : Activity() {
     private fun List<Mark>.filterByCurrentFilter(): List<Mark> {
         return when (currentFilter) {
             MarkFilter.ALL -> this
-            MarkFilter.UNSENT -> filter { it.syncStatus == com.example.geometka.data.SyncStatus.LOCAL }
+            MarkFilter.UNSENT -> filter {
+                it.syncStatus == com.example.geometka.data.SyncStatus.LOCAL ||
+                    it.syncStatus == com.example.geometka.data.SyncStatus.PENDING
+            }
             MarkFilter.SENT -> filter { it.syncStatus == com.example.geometka.data.SyncStatus.SYNCED }
             MarkFilter.FRONT -> filter { it.pointType == com.example.geometka.data.PointType.FRONT }
             MarkFilter.FLANK -> filter { it.pointType == com.example.geometka.data.PointType.FLANK }

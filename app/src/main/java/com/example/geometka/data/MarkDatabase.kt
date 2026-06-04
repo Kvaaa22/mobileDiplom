@@ -173,6 +173,46 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    fun getUnsyncedMarks(): List<Mark> {
+        val marks = mutableListOf<Mark>()
+        val db = readableDatabase
+
+        val cursor = db.query(
+            TABLE_MARKS,
+            null,
+            "$COLUMN_SYNC_STATUS IN (?, ?)",
+            arrayOf(SyncStatus.LOCAL.name, SyncStatus.PENDING.name),
+            null,
+            null,
+            "$COLUMN_CREATED_AT ASC"
+        )
+
+        cursor.use {
+            while (it.moveToNext()) {
+                marks.add(cursorToMark(it))
+            }
+        }
+
+        return marks
+    }
+
+    fun updateSyncStatus(
+        id: Long,
+        syncStatus: SyncStatus
+    ): Int {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put(COLUMN_SYNC_STATUS, syncStatus.name)
+        }
+
+        return db.update(
+            TABLE_MARKS,
+            values,
+            "$COLUMN_ID = ?",
+            arrayOf(id.toString())
+        )
+    }
+
     fun updateMark(mark: Mark): Int {
         val db = writableDatabase
 

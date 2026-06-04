@@ -16,6 +16,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.example.geometka.api.MarkSyncClient
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.SyncStatus
 import com.example.geometka.ui.ScreenChrome
@@ -30,6 +31,7 @@ class SyncActivity : Activity() {
     private lateinit var nextSyncText: TextView
     private lateinit var journalContainer: LinearLayout
     private lateinit var progressBar: ProgressBar
+    private var isSyncRunning = false
     
     // Хранилище всех действий для журнала
     private val syncLogs = mutableListOf<String>()
@@ -99,14 +101,7 @@ class SyncActivity : Activity() {
         contentLayout.addView(createStatusCard())
         contentLayout.addView(createNextSyncCard())
         contentLayout.addView(createMainButton("Повторить отправку", Colors.GREEN) {
-            addLog("Запуск повторной отправки...")
-            Toast.makeText(this, "Повторная отправка запущена", Toast.LENGTH_SHORT).show()
-            
-            // Имитация процесса
-            contentLayout.postDelayed({
-                addLog("Поиск неотправленных записей...")
-                refreshData()
-            }, 1000)
+            startMarksSync()
         })
 
         contentLayout.addView(createMainButton("Остановить синхронизацию", "#EEF3ED", darkText = true) {
@@ -412,6 +407,77 @@ class SyncActivity : Activity() {
         }
 
         updateJournalUI()
+    }
+
+    private fun startMarksSync() {
+        if (isSyncRunning) {
+            Toast.makeText(this, "Синхронизация уже идет", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val marksToSend = database.getUnsyncedMarks()
+        if (marksToSend.isEmpty()) {
+            addLog("Нет записей для отправки")
+            refreshData()
+            Toast.makeText(this, "Все данные уже синхронизированы", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isSyncRunning = true
+        progressBar.progress = 0
+        progressText.text = "Отправка 0 из ${marksToSend.size}"
+        nextSyncText.text = "Идет отправка ${marksToSend.size} записей"
+        addLog("Найдено записей для отправки: ${marksToSend.size}")
+        Toast.makeText(this, "Синхронизация запущена", Toast.LENGTH_SHORT).show()
+
+        Thread {
+            val client = MarkSyncClient(applicationContext)
+            try {
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.PENDING)
+                }
+
+                runOnUiThread {
+                    progressText.text = "Отправка пакета: ${marksToSend.size} записей"
+                    progressBar.progress = 35
+                    addLog("Отправка пакета синхронизации: ${marksToSend.size} записей")
+                }
+
+                client.sendMarks(marksToSend)
+
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.SYNCED)
+                }
+
+                runOnUiThread {
+                    isSyncRunning = false
+                    progressBar.progress = 100
+                    addLog("Синхронизация завершена: ${marksToSend.size} успешно, 0 с ошибкой")
+                    refreshData()
+                    Toast.makeText(
+                        this,
+                        "Отправлено: ${marksToSend.size}, ошибок: 0",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (error: Exception) {
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.LOCAL)
+                }
+
+                runOnUiThread {
+                    isSyncRunning = false
+                    progressBar.progress = 0
+                    addLog("Ошибка синхронизации: ${error.message ?: "неизвестная ошибка"}")
+                    refreshData()
+                    Toast.makeText(
+                        this,
+                        "Ошибка синхронизации",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     private fun updateJournalUI() {
