@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.*
 import com.example.geometka.data.FireIntensity
 import com.example.geometka.data.FireType
@@ -30,6 +31,10 @@ class EditMarkActivity : Activity() {
     private var selectedIntensity: FireIntensity = FireIntensity.MEDIUM
     private var selectedFireType: FireType = FireType.GROUND
 
+    private companion object {
+        const val KEYBOARD_SCROLL_DELAY_MS = 260L
+    }
+
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
         const val GREEN = "#155E32"
@@ -48,7 +53,10 @@ class EditMarkActivity : Activity() {
 
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.WHITE
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+        )
 
         database = MarkDatabase(this)
         val markId = intent.getLongExtra("MARK_ID", -1)
@@ -116,6 +124,7 @@ class EditMarkActivity : Activity() {
             multiline = true
         )
         contentLayout.addView(notesInput)
+        keepInputAboveKeyboard(scrollView, notesInput)
 
         contentLayout.addView(createPrimaryButton("Сохранить изменения") {
             saveChanges()
@@ -129,6 +138,21 @@ class EditMarkActivity : Activity() {
         rootLayout.addView(scrollView)
 
         return rootLayout
+    }
+
+    private fun keepInputAboveKeyboard(
+        scrollView: ScrollView,
+        input: EditText
+    ) {
+        input.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                scrollView.postDelayed({
+                    val targetBottom = input.bottom + dp(32)
+                    val scrollY = (targetBottom - scrollView.height).coerceAtLeast(0)
+                    scrollView.smoothScrollTo(0, scrollY)
+                }, KEYBOARD_SCROLL_DELAY_MS)
+            }
+        }
     }
 
     private fun createHeader(): LinearLayout {

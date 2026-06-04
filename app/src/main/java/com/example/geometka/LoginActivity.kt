@@ -9,9 +9,12 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
@@ -26,6 +29,10 @@ class LoginActivity : Activity() {
     private lateinit var loginInput: EditText
     private lateinit var passwordInput: EditText
     private lateinit var loginButton: Button
+
+    private companion object {
+        const val KEYBOARD_SCROLL_DELAY_MS = 260L
+    }
 
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
@@ -43,6 +50,10 @@ class LoginActivity : Activity() {
 
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.parseColor(Colors.BACKGROUND)
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+        )
         ScreenChrome.apply(this)
 
         if (AppSession.isUnlocked(this)) {
@@ -72,10 +83,9 @@ class LoginActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(26), dp(20), dp(26), dp(20))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
@@ -117,10 +127,46 @@ class LoginActivity : Activity() {
         content.addView(bottomSpace)
         content.addView(createFooterText())
 
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            addView(content)
+        }
+
+        keepInputAboveKeyboard(scrollView, loginInput)
+        keepInputAboveKeyboard(scrollView, passwordInput)
+
         root.addView(topBar)
-        root.addView(content)
+        root.addView(scrollView)
 
         return root
+    }
+
+    private fun keepInputAboveKeyboard(
+        scrollView: ScrollView,
+        input: EditText
+    ) {
+        input.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                scrollInputAboveKeyboard(scrollView, input)
+            }
+        }
+    }
+
+    private fun scrollInputAboveKeyboard(
+        scrollView: ScrollView,
+        input: View
+    ) {
+        scrollView.postDelayed({
+            val targetBottom = input.bottom + dp(32)
+            val scrollY = (targetBottom - scrollView.height).coerceAtLeast(0)
+            scrollView.smoothScrollTo(0, scrollY)
+        }, KEYBOARD_SCROLL_DELAY_MS)
     }
 
     private fun createTitle(): TextView {

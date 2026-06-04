@@ -21,6 +21,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.example.geometka.data.FireIntensity
@@ -35,6 +36,7 @@ import com.example.geometka.maps.MapAvailability
 import com.example.geometka.maps.MapDownloadRunner
 import com.example.geometka.maps.MapStorage
 import com.example.geometka.ui.ScreenChrome
+import org.mapsforge.core.model.BoundingBox
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
@@ -75,6 +77,8 @@ class MainActivity : Activity() {
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
     private var currentHorizontalAccuracyMeters: Float? = null
+    private var preferredMapCenter: LatLong? = null
+    private var hasCenteredOnCurrentLocation = false
     private var directMapDownloadRunning = false
 
     private object Colors {
@@ -100,6 +104,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TAG = "MainMap"
+        private const val MAP_EDGE_PADDING_PX = 8
+        private const val KEYBOARD_SCROLL_DELAY_MS = 260L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,7 +115,10 @@ class MainActivity : Activity() {
 
         window.statusBarColor = Color.parseColor(Colors.GREEN_DARK)
         window.navigationBarColor = Color.WHITE
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+        )
         ScreenChrome.apply(this)
 
         locationHelper = LocationHelper(this)
@@ -420,6 +429,7 @@ class MainActivity : Activity() {
                 }
 
                 redrawMarksOnMap()
+                bringCurrentLocationMarkerToFront()
                 return
             }
         }
@@ -473,14 +483,188 @@ class MainActivity : Activity() {
         tileRendererLayer = rendererLayer
         view.layerManager.layers.add(rendererLayer)
 
-        val centerLat = (boundingBox.minLatitude + boundingBox.maxLatitude) / 2.0
-        val centerLon = (boundingBox.minLongitude + boundingBox.maxLongitude) / 2.0
-
         view.model.mapViewPosition.setMapLimit(boundingBox)
-        view.model.mapViewPosition.setCenter(LatLong(centerLat, centerLon))
+        view.model.mapViewPosition.setCenter(resolveInitialMapCenter(boundingBox))
         view.model.mapViewPosition.setZoomLevel(OfflineMapConfig.DEFAULT_ZOOM)
+        view.post {
+            keepMapZoomInsideMapBounds(view, boundingBox)
+        }
 
         return view
+    }
+
+    private fun resolveInitialMapCenter(boundingBox: BoundingBox): LatLong {
+        val fallbackCenter = LatLong(
+            (boundingBox.minLatitude + boundingBox.maxLatitude) / 2.0,
+            (boundingBox.minLongitude + boundingBox.maxLongitude) / 2.0
+        )
+
+        val requestedCenter = preferredMapCenter
+            ?: currentLocationLatLong()
+            ?: fallbackCenter
+
+        return clampToBoundingBox(requestedCenter, boundingBox)
+    }
+
+    private fun currentLocationLatLong(): LatLong? {
+        val lat = currentLatitude ?: return null
+        val lon = currentLongitude ?: return null
+
+        return LatLong(lat, lon)
+    }
+
+    private fun clampToBoundingBox(
+        position: LatLong,
+        boundingBox: BoundingBox
+    ): LatLong {
+        return LatLong(
+            position.latitude.coerceIn(boundingBox.minLatitude, boundingBox.maxLatitude),
+            position.longitude.coerceIn(boundingBox.minLongitude, boundingBox.maxLongitude)
+        )
+    }
+
+    private fun keepMapZoomInsideMapBounds(
+        view: MapView,
+        boundingBox: BoundingBox
+    ) {
+        val minZoom = calculateMinZoomWithoutOuterMapCanvas(view, boundingBox)
+            .coerceAtLeast(OfflineMapConfig.DEFAULT_ZOOM)
+
+        runCatching {
+            val method = view.model.mapViewPosition.javaClass.getMethod(
+                "setZoomLevelMin",
+                java.lang.Byte.TYPE
+            )
+            method.invoke(view.model.mapViewPosition, minZoom)
+        }
+
+        if (view.model.mapViewPosition.zoomLevel < minZoom) {
+            view.model.mapViewPosition.setZoomLevel(minZoom)
+        }
+
+        view.model.mapViewPosition.setCenter(
+            clampCenterToVisibleMapBounds(
+                position = resolveInitialMapCenter(boundingBox),
+                boundingBox = boundingBox,
+                view = view,
+                zoom = view.model.mapViewPosition.zoomLevel.toInt()
+            )
+        )
+        view.invalidate()
+    }
+
+    private fun calculateMinZoomWithoutOuterMapCanvas(
+        view: MapView,
+        boundingBox: BoundingBox
+    ): Byte {
+        val viewportWidth = view.width.takeIf { it > 0 } ?: return OfflineMapConfig.DEFAULT_ZOOM
+        val viewportHeight = view.height.takeIf { it > 0 } ?: return OfflineMapConfig.DEFAULT_ZOOM
+        val tileSize = view.model.displayModel.tileSize.toDouble()
+
+        for (zoom in OfflineMapConfig.DEFAULT_ZOOM.toInt()..22) {
+            val mapWidth = lonToPixelX(boundingBox.maxLongitude, zoom, tileSize) -
+                lonToPixelX(boundingBox.minLongitude, zoom, tileSize)
+            val mapHeight = latToPixelY(boundingBox.minLatitude, zoom, tileSize) -
+                latToPixelY(boundingBox.maxLatitude, zoom, tileSize)
+
+            if (mapWidth >= viewportWidth + MAP_EDGE_PADDING_PX && mapHeight >= viewportHeight + MAP_EDGE_PADDING_PX) {
+                return zoom.toByte()
+            }
+        }
+
+        return 22
+    }
+
+    private fun lonToPixelX(
+        longitude: Double,
+        zoom: Int,
+        tileSize: Double
+    ): Double {
+        val worldSize = tileSize * (1 shl zoom)
+        return (longitude + 180.0) / 360.0 * worldSize
+    }
+
+    private fun latToPixelY(
+        latitude: Double,
+        zoom: Int,
+        tileSize: Double
+    ): Double {
+        val sinLatitude = kotlin.math.sin(Math.toRadians(latitude)).coerceIn(-0.9999, 0.9999)
+        val worldSize = tileSize * (1 shl zoom)
+
+        return (
+            0.5 - kotlin.math.ln((1.0 + sinLatitude) / (1.0 - sinLatitude)) / (4.0 * Math.PI)
+            ) * worldSize
+    }
+
+    private fun clampCenterToVisibleMapBounds(
+        position: LatLong,
+        boundingBox: BoundingBox,
+        view: MapView,
+        zoom: Int
+    ): LatLong {
+        val viewportWidth = view.width.takeIf { it > 0 } ?: return clampToBoundingBox(position, boundingBox)
+        val viewportHeight = view.height.takeIf { it > 0 } ?: return clampToBoundingBox(position, boundingBox)
+        val tileSize = view.model.displayModel.tileSize.toDouble()
+
+        val minX = lonToPixelX(boundingBox.minLongitude, zoom, tileSize)
+        val maxX = lonToPixelX(boundingBox.maxLongitude, zoom, tileSize)
+        val minY = latToPixelY(boundingBox.maxLatitude, zoom, tileSize)
+        val maxY = latToPixelY(boundingBox.minLatitude, zoom, tileSize)
+
+        val halfWidth = viewportWidth / 2.0
+        val halfHeight = viewportHeight / 2.0
+
+        val centerX = lonToPixelX(position.longitude, zoom, tileSize)
+        val centerY = latToPixelY(position.latitude, zoom, tileSize)
+
+        val clampedX = centerX.coerceInOrFallback(
+            min = minX + halfWidth,
+            max = maxX - halfWidth,
+            fallback = (minX + maxX) / 2.0
+        )
+        val clampedY = centerY.coerceInOrFallback(
+            min = minY + halfHeight,
+            max = maxY - halfHeight,
+            fallback = (minY + maxY) / 2.0
+        )
+
+        return LatLong(
+            pixelYToLat(clampedY, zoom, tileSize).coerceIn(boundingBox.minLatitude, boundingBox.maxLatitude),
+            pixelXToLon(clampedX, zoom, tileSize).coerceIn(boundingBox.minLongitude, boundingBox.maxLongitude)
+        )
+    }
+
+    private fun Double.coerceInOrFallback(
+        min: Double,
+        max: Double,
+        fallback: Double
+    ): Double {
+        return if (min <= max) {
+            coerceIn(min, max)
+        } else {
+            fallback
+        }
+    }
+
+    private fun pixelXToLon(
+        pixelX: Double,
+        zoom: Int,
+        tileSize: Double
+    ): Double {
+        val worldSize = tileSize * (1 shl zoom)
+        return pixelX / worldSize * 360.0 - 180.0
+    }
+
+    private fun pixelYToLat(
+        pixelY: Double,
+        zoom: Int,
+        tileSize: Double
+    ): Double {
+        val worldSize = tileSize * (1 shl zoom)
+        val mercatorY = Math.PI * (1.0 - 2.0 * pixelY / worldSize)
+
+        return Math.toDegrees(kotlin.math.atan(kotlin.math.sinh(mercatorY)))
     }
 
     private fun addAccuracyChip() {
@@ -535,6 +719,8 @@ class MainActivity : Activity() {
             addView(createLegendRow(Colors.BORDER_WHITE, "Низовой"))
             addView(createLegendRow(Colors.GRAY, "Верховой"))
             addView(createLegendRow(Colors.BROWN, "Торфяной"))
+            addView(createLegendTitle("Положение"))
+            addView(createLegendRow(Colors.BLUE, "Вы"))
         }
 
         mapContainer.addView(legend)
@@ -660,6 +846,7 @@ class MainActivity : Activity() {
             if (map != null) {
                 val position = LatLong(lat, lon)
                 addOrUpdateCurrentLocationMarker(position)
+                centerOnCurrentLocationIfNeeded(position)
             }
         }
 
@@ -692,18 +879,45 @@ class MainActivity : Activity() {
             map.layerManager.layers.remove(it)
         }
 
-            val marker = Marker(
+        val marker = Marker(
             position,
             createCircleBitmap(
                 fillColor = Color.parseColor(Colors.BLUE),
-                sizePx = dp(18)
+                sizePx = dp(24),
+                borderColor = Color.parseColor(Colors.BLUE)
             ),
             0,
-            -dp(9)
+            -dp(12)
         )
 
         currentLocationMarker = marker
         map.layerManager.layers.add(marker)
+    }
+
+    private fun bringCurrentLocationMarkerToFront() {
+        currentLocationLatLong()?.let { position ->
+            addOrUpdateCurrentLocationMarker(position)
+        }
+    }
+
+    private fun centerOnCurrentLocationIfNeeded(position: LatLong) {
+        val map = mapView ?: return
+        val bounds = mapDataStore?.boundingBox() ?: return
+
+        if (preferredMapCenter != null || hasCenteredOnCurrentLocation) {
+            return
+        }
+
+        map.model.mapViewPosition.setCenter(
+            clampCenterToVisibleMapBounds(
+                position = position,
+                boundingBox = bounds,
+                view = map,
+                zoom = map.model.mapViewPosition.zoomLevel.toInt()
+            )
+        )
+        map.invalidate()
+        hasCenteredOnCurrentLocation = true
     }
 
     private fun redrawMarksOnMap() {
@@ -744,6 +958,7 @@ class MainActivity : Activity() {
             map.layerManager.layers.add(marker)
         }
 
+        bringCurrentLocationMarkerToFront()
         map.invalidate()
     }
 
@@ -792,7 +1007,9 @@ class MainActivity : Activity() {
 
             val map = mapView
             if (map != null) {
-                addOrUpdateCurrentLocationMarker(LatLong(lat, lon))
+                val position = LatLong(lat, lon)
+                addOrUpdateCurrentLocationMarker(position)
+                centerOnCurrentLocationIfNeeded(position)
             }
 
             showAddPointDialog()
@@ -936,8 +1153,15 @@ class MainActivity : Activity() {
             addView(notesInput)
         }
 
-        AlertDialog.Builder(this)
-            .setView(layout)
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = false
+            addView(layout)
+        }
+
+        keepDialogInputAboveKeyboard(scrollView, notesInput)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(scrollView)
             .setPositiveButton("Сохранить") { _, _ ->
                 savePoint(
                     latitude = lat,
@@ -952,6 +1176,26 @@ class MainActivity : Activity() {
                 setupCallbacks()
             }
             .show()
+
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+        )
+    }
+
+    private fun keepDialogInputAboveKeyboard(
+        scrollView: ScrollView,
+        input: EditText
+    ) {
+        input.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                scrollView.postDelayed({
+                    val targetBottom = input.bottom + dp(32)
+                    val scrollY = (targetBottom - scrollView.height).coerceAtLeast(0)
+                    scrollView.smoothScrollTo(0, scrollY)
+                }, KEYBOARD_SCROLL_DELAY_MS)
+            }
+        }
     }
 
     private fun <T> createChipRow(
@@ -1062,6 +1306,7 @@ class MainActivity : Activity() {
         )
 
         if (database.insertMark(mark) > 0) {
+            preferredMapCenter = LatLong(latitude, longitude)
             Toast.makeText(this, "Точка сохранена", Toast.LENGTH_SHORT).show()
             setupCallbacks()
             refreshMapScreen()
