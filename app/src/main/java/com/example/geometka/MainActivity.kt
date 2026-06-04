@@ -615,7 +615,7 @@ class MainActivity : Activity() {
         hideMarkInfoBubble()
 
         val bubble = TextView(this).apply {
-            text = "ID: ${mark.id}\n${mark.pointType.label}\n${mark.getFormattedDate().substringAfter(" ")}"
+            text = "ID: ${mark.id}\n${mark.pointType.label}\n${mark.verificationStatus.label}\n${mark.getFormattedDate().substringAfter(" ")}"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))

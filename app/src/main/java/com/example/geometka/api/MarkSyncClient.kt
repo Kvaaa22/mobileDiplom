@@ -3,6 +3,7 @@ package com.example.geometka.api
 import android.content.Context
 import com.example.geometka.auth.AppSession
 import com.example.geometka.data.Mark
+import com.example.geometka.data.VerificationStatus
 import com.example.geometka.maps.DeviceIdentity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,17 +14,20 @@ class MarkSyncClient(
     private val context: Context
 ) {
 
-    fun sendMarks(marks: List<Mark>) {
-        if (marks.isEmpty()) return
+    data class MarkSyncResult(
+        val localId: Long,
+        val verificationStatus: VerificationStatus?
+    )
 
+    fun sendMarks(marks: List<Mark>): List<MarkSyncResult> {
         val deviceId = DeviceIdentity.getDeviceId(context)
         val errors = mutableListOf<String>()
 
         SYNC_ENDPOINTS.forEach { path ->
             val url = "${ApiConfig.BASE_URL}$path"
             try {
-                postJson(url, buildSyncPackage(deviceId, marks).toString(), deviceId)
-                return
+                val response = postJson(url, buildSyncPackage(deviceId, marks).toString(), deviceId)
+                return parseSyncResults(response)
             } catch (error: Exception) {
                 errors.add("${path}: ${error.message ?: error.javaClass.simpleName}")
             }
@@ -60,6 +64,7 @@ class MarkSyncClient(
             .put("notes", mark.notes)
             .put("createdAt", mark.createdAt)
             .put("horizontalAccuracyMeters", mark.horizontalAccuracyMeters)
+            .put("verificationStatus", mark.verificationStatus.name)
             .put("mapId", mark.mapId)
     }
 
@@ -67,7 +72,7 @@ class MarkSyncClient(
         urlText: String,
         body: String,
         deviceId: String
-    ) {
+    ): String {
         val connection = URL(urlText).openConnection() as HttpURLConnection
 
         try {
@@ -87,8 +92,10 @@ class MarkSyncClient(
 
             val responseCode = connection.responseCode
             if (responseCode in 200..299) {
-                connection.inputStream?.close()
-                return
+                return connection.inputStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
             }
 
             val responseText = connection.errorStream
@@ -99,6 +106,126 @@ class MarkSyncClient(
             throw IllegalStateException(readErrorMessage(urlText, responseText, responseCode))
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun parseSyncResults(responseText: String): List<MarkSyncResult> {
+        if (responseText.isBlank()) return emptyList()
+
+        return runCatching {
+            when (responseText.trim().firstOrNull()) {
+                '[' -> parseResultArray(JSONArray(responseText))
+                '{' -> parseResultObject(JSONObject(responseText))
+                else -> emptyList()
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun parseResultObject(obj: JSONObject): List<MarkSyncResult> {
+        val directResult = parseResultItem(obj)
+        if (directResult != null) return listOf(directResult)
+
+        val resultKeys = listOf(
+            "marks",
+            "results",
+            "accepted",
+            "updates",
+            "items",
+            "records"
+        )
+
+        return resultKeys
+            .asSequence()
+            .mapNotNull { key -> obj.optJSONArray(key) }
+            .flatMap { array -> parseResultArray(array).asSequence() }
+            .toList()
+    }
+
+    private fun parseResultArray(array: JSONArray): List<MarkSyncResult> {
+        val results = mutableListOf<MarkSyncResult>()
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            parseResultItem(item)?.let { results.add(it) }
+        }
+
+        return results
+    }
+
+    private fun parseResultItem(obj: JSONObject): MarkSyncResult? {
+        val localId = optLongAny(
+            obj,
+            "localId",
+            "clientId",
+            "clientLocalId",
+            "mobileId"
+        ) ?: return null
+
+        return MarkSyncResult(
+            localId = localId,
+            verificationStatus = parseVerificationStatus(
+                optStringAny(
+                    obj,
+                    "verificationStatus",
+                    "reviewStatus",
+                    "status"
+                )
+            )
+        )
+    }
+
+    private fun optLongAny(
+        obj: JSONObject,
+        vararg keys: String
+    ): Long? {
+        keys.forEach { key ->
+            if (!obj.has(key) || obj.isNull(key)) return@forEach
+            val value = obj.opt(key)
+
+            when (value) {
+                is Number -> return value.toLong()
+                is String -> value.toLongOrNull()?.let { return it }
+            }
+        }
+
+        return null
+    }
+
+    private fun optStringAny(
+        obj: JSONObject,
+        vararg keys: String
+    ): String? {
+        keys.forEach { key ->
+            val value = obj.optString(key).takeIf { it.isNotBlank() }
+            if (value != null) return value
+        }
+
+        return null
+    }
+
+    private fun parseVerificationStatus(value: String?): VerificationStatus? {
+        return when (value?.trim()?.uppercase()) {
+            "UNVERIFIED",
+            "NOT_VERIFIED",
+            "PENDING",
+            "NEW",
+            "NEEDS_REVIEW",
+            "UNDER_REVIEW" -> VerificationStatus.UNVERIFIED
+
+            "CONFIRMED",
+            "APPROVED",
+            "VERIFIED",
+            "ACCEPTED" -> VerificationStatus.CONFIRMED
+
+            "DISPROVED",
+            "REJECTED",
+            "DECLINED",
+            "DENIED",
+            "FALSE",
+            "CANCELLED",
+            "CANCELED" -> VerificationStatus.DISPROVED
+
+            else -> null
         }
     }
 

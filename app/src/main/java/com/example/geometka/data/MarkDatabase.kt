@@ -15,7 +15,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "geometka.db"
-        private const val DATABASE_VERSION = 4
+        private const val DATABASE_VERSION = 5
 
         private const val TABLE_MARKS = "marks"
 
@@ -31,6 +31,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         private const val COLUMN_CREATED_AT = "created_at"
         private const val COLUMN_ACCURACY = "horizontal_accuracy_meters"
         private const val COLUMN_SYNC_STATUS = "sync_status"
+        private const val COLUMN_VERIFICATION_STATUS = "verification_status"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -47,7 +48,8 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
                 $COLUMN_NOTES TEXT,
                 $COLUMN_CREATED_AT INTEGER NOT NULL,
                 $COLUMN_ACCURACY REAL,
-                $COLUMN_SYNC_STATUS TEXT NOT NULL
+                $COLUMN_SYNC_STATUS TEXT NOT NULL,
+                $COLUMN_VERIFICATION_STATUS TEXT NOT NULL
             )
         """.trimIndent()
 
@@ -72,6 +74,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, COLUMN_CREATED_AT, "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(db, COLUMN_ACCURACY, "REAL")
         addColumnIfMissing(db, COLUMN_SYNC_STATUS, "TEXT NOT NULL DEFAULT '${SyncStatus.LOCAL.name}'")
+        addColumnIfMissing(db, COLUMN_VERIFICATION_STATUS, "TEXT NOT NULL DEFAULT '${VerificationStatus.UNVERIFIED.name}'")
     }
 
     fun insertMark(mark: Mark): Long {
@@ -100,6 +103,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
             }
 
             put(COLUMN_SYNC_STATUS, mark.syncStatus.name)
+            put(COLUMN_VERIFICATION_STATUS, mark.verificationStatus.name)
         }
 
         return db.insert(TABLE_MARKS, null, values)
@@ -213,6 +217,23 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    fun updateVerificationStatus(
+        id: Long,
+        verificationStatus: VerificationStatus
+    ): Int {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put(COLUMN_VERIFICATION_STATUS, verificationStatus.name)
+        }
+
+        return db.update(
+            TABLE_MARKS,
+            values,
+            "$COLUMN_ID = ?",
+            arrayOf(id.toString())
+        )
+    }
+
     fun updateMark(mark: Mark): Int {
         val db = writableDatabase
 
@@ -238,6 +259,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
             }
 
             put(COLUMN_SYNC_STATUS, mark.syncStatus.name)
+            put(COLUMN_VERIFICATION_STATUS, mark.verificationStatus.name)
         }
 
         return db.update(
@@ -278,8 +300,18 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
             syncStatus = enumValueOrDefault(
                 cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_SYNC_STATUS)),
                 SyncStatus.LOCAL
+            ),
+            verificationStatus = enumValueOrDefault(
+                cursor.getNullableString(COLUMN_VERIFICATION_STATUS),
+                VerificationStatus.UNVERIFIED
             )
         )
+    }
+
+    private fun Cursor.getNullableString(columnName: String): String? {
+        val index = getColumnIndex(columnName)
+        if (index == -1 || isNull(index)) return null
+        return getString(index)
     }
 
     private fun Cursor.getNullableLong(columnName: String): Long? {

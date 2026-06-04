@@ -11,10 +11,13 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import com.example.geometka.api.MarkSyncClient
 import com.example.geometka.data.FireIntensity
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.PointType
+import com.example.geometka.data.SyncStatus
+import com.example.geometka.data.VerificationStatus
 import com.example.geometka.ui.ScreenChrome
 
 class MarkListActivity : Activity() {
@@ -35,6 +38,7 @@ class MarkListActivity : Activity() {
     private var allMarks: List<Mark> = emptyList()
     private var currentFilter: MarkFilter = MarkFilter.ALL
     private var searchQuery: String = ""
+    private var isSyncRunning = false
 
     private enum class MarkFilter {
         ALL,
@@ -332,13 +336,75 @@ class MarkListActivity : Activity() {
                 bottomMargin = dp(18)
             }
             setOnClickListener {
-                Toast.makeText(
-                    this@MarkListActivity,
-                    "Синхронизация пока не подключена",
-                    Toast.LENGTH_SHORT
-                ).show()
+                syncMarksFromList()
             }
         }
+    }
+
+    private fun syncMarksFromList() {
+        if (isSyncRunning) {
+            Toast.makeText(this, "Синхронизация уже идет", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val marksToSend = database.getUnsyncedMarks()
+        isSyncRunning = true
+
+        Toast.makeText(
+            this,
+            if (marksToSend.isEmpty()) {
+                "Проверяем статусы точек"
+            } else {
+                "Отправляем точек: ${marksToSend.size}"
+            },
+            Toast.LENGTH_SHORT
+        ).show()
+
+        Thread {
+            val client = MarkSyncClient(applicationContext)
+
+            try {
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.PENDING)
+                }
+
+                val syncResults = client.sendMarks(marksToSend)
+
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.SYNCED)
+                }
+
+                syncResults.forEach { result ->
+                    result.verificationStatus?.let { status ->
+                        database.updateVerificationStatus(result.localId, status)
+                    }
+                }
+
+                runOnUiThread {
+                    isSyncRunning = false
+                    loadMarks()
+                    Toast.makeText(
+                        this,
+                        "Отправлено: ${marksToSend.size}, статусов: ${syncResults.size}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (error: Exception) {
+                marksToSend.forEach { mark ->
+                    database.updateSyncStatus(mark.id, SyncStatus.LOCAL)
+                }
+
+                runOnUiThread {
+                    isSyncRunning = false
+                    loadMarks()
+                    Toast.makeText(
+                        this,
+                        "Ошибка синхронизации: ${error.message ?: "неизвестная ошибка"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     private fun createBottomNavigation(): LinearLayout {
@@ -470,6 +536,7 @@ class MarkListActivity : Activity() {
                     mark.pointType.label.lowercase().contains(query) ||
                     mark.intensity.label.lowercase().contains(query) ||
                     mark.typeOfFire.label.lowercase().contains(query) ||
+                    mark.verificationStatus.label.lowercase().contains(query) ||
                     mark.getFormattedDate().lowercase().contains(query)
         }
     }
@@ -537,10 +604,10 @@ class MarkListActivity : Activity() {
         textBlock.addView(subtitle)
 
         val status = TextView(this).apply {
-            val (statusText, statusColor) = when(mark.syncStatus) {
-                com.example.geometka.data.SyncStatus.LOCAL -> "локально" to Colors.ORANGE
-                com.example.geometka.data.SyncStatus.SYNCED -> "отправлено" to Colors.GREEN
-                com.example.geometka.data.SyncStatus.PENDING -> "ожидание" to Colors.ORANGE
+            val (statusText, statusColor) = when (mark.verificationStatus) {
+                VerificationStatus.UNVERIFIED -> "Непроверено" to Colors.ORANGE
+                VerificationStatus.CONFIRMED -> "Подтверждено" to Colors.GREEN
+                VerificationStatus.DISPROVED -> "Отклонено" to Colors.RED
             }
             text = statusText
             textSize = 10f

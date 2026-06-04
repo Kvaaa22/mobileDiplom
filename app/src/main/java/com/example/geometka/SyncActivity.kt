@@ -416,17 +416,19 @@ class SyncActivity : Activity() {
         }
 
         val marksToSend = database.getUnsyncedMarks()
-        if (marksToSend.isEmpty()) {
-            addLog("Нет записей для отправки")
-            refreshData()
-            Toast.makeText(this, "Все данные уже синхронизированы", Toast.LENGTH_SHORT).show()
-            return
-        }
 
         isSyncRunning = true
         progressBar.progress = 0
-        progressText.text = "Отправка 0 из ${marksToSend.size}"
-        nextSyncText.text = "Идет отправка ${marksToSend.size} записей"
+        progressText.text = if (marksToSend.isEmpty()) {
+            "Проверка статусов"
+        } else {
+            "Отправка 0 из ${marksToSend.size}"
+        }
+        nextSyncText.text = if (marksToSend.isEmpty()) {
+            "Идет получение статусов с сервера"
+        } else {
+            "Идет отправка ${marksToSend.size} записей"
+        }
         addLog("Найдено записей для отправки: ${marksToSend.size}")
         Toast.makeText(this, "Синхронизация запущена", Toast.LENGTH_SHORT).show()
 
@@ -438,25 +440,41 @@ class SyncActivity : Activity() {
                 }
 
                 runOnUiThread {
-                    progressText.text = "Отправка пакета: ${marksToSend.size} записей"
+                    progressText.text = if (marksToSend.isEmpty()) {
+                        "Запрос статусов с сервера"
+                    } else {
+                        "Отправка пакета: ${marksToSend.size} записей"
+                    }
                     progressBar.progress = 35
-                    addLog("Отправка пакета синхронизации: ${marksToSend.size} записей")
+                    addLog(
+                        if (marksToSend.isEmpty()) {
+                            "Отправка пустой синхронизации для обновления статусов"
+                        } else {
+                            "Отправка пакета синхронизации: ${marksToSend.size} записей"
+                        }
+                    )
                 }
 
-                client.sendMarks(marksToSend)
+                val syncResults = client.sendMarks(marksToSend)
 
                 marksToSend.forEach { mark ->
                     database.updateSyncStatus(mark.id, SyncStatus.SYNCED)
                 }
 
+                syncResults.forEach { result ->
+                    result.verificationStatus?.let { status ->
+                        database.updateVerificationStatus(result.localId, status)
+                    }
+                }
+
                 runOnUiThread {
                     isSyncRunning = false
                     progressBar.progress = 100
-                    addLog("Синхронизация завершена: ${marksToSend.size} успешно, 0 с ошибкой")
+                    addLog("Синхронизация завершена: отправлено ${marksToSend.size}, обновлено статусов ${syncResults.size}")
                     refreshData()
                     Toast.makeText(
                         this,
-                        "Отправлено: ${marksToSend.size}, ошибок: 0",
+                        "Отправлено: ${marksToSend.size}, статусов: ${syncResults.size}",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

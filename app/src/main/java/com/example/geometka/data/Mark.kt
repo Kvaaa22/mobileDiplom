@@ -16,6 +16,7 @@ data class Mark(
     val createdAt: Long = System.currentTimeMillis(),
     val horizontalAccuracyMeters: Float?,
     val syncStatus: SyncStatus = SyncStatus.LOCAL,
+    val verificationStatus: VerificationStatus = VerificationStatus.UNVERIFIED,
     val mapId: Long? = OfflineMapConfig.DEFAULT_MAP_ID
 ) {
     fun getFormattedDate(): String {
@@ -50,4 +51,10 @@ enum class SyncStatus {
     LOCAL,
     SYNCED,
     PENDING
+}
+
+enum class VerificationStatus(val label: String) {
+    UNVERIFIED("Непроверено"),
+    CONFIRMED("Подтверждено"),
+    DISPROVED("Отклонено")
 }

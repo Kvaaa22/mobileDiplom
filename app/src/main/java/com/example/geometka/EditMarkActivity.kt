@@ -438,7 +438,8 @@ class EditMarkActivity : Activity() {
             intensity = selectedIntensity,
             typeOfFire = selectedFireType,
             notes = notesInput.text.toString().trim().ifEmpty { null },
-            syncStatus = com.example.geometka.data.SyncStatus.LOCAL
+            syncStatus = com.example.geometka.data.SyncStatus.LOCAL,
+            verificationStatus = com.example.geometka.data.VerificationStatus.UNVERIFIED
         )
 
         if (database.updateMark(updatedMark) > 0) {
