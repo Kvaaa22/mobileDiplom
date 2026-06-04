@@ -21,7 +21,7 @@ object DeviceIdentity {
             return existingId
         }
 
-        val newId = UUID.randomUUID().toString()
+        val newId = "mobile-${UUID.randomUUID()}"
 
         prefs.edit()
             .putString(KEY_DEVICE_ID, newId)

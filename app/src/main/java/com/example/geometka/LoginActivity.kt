@@ -18,9 +18,9 @@ import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
-import com.example.geometka.api.ApiConfig
 import com.example.geometka.api.AuthApiClient
 import com.example.geometka.auth.AppSession
+import com.example.geometka.maps.DeviceIdentity
 import com.example.geometka.maps.MapDownloadScheduler
 import com.example.geometka.ui.ScreenChrome
 
@@ -311,7 +311,7 @@ class LoginActivity : Activity() {
                 val result = AuthApiClient().login(
                     login = login,
                     password = password,
-                    deviceId = ApiConfig.MOBILE_DEVICE_ID
+                    deviceId = DeviceIdentity.getDeviceId(this@LoginActivity)
                 )
                 val username = result.username ?: login
 
