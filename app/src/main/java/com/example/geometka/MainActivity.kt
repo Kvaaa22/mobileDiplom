@@ -34,6 +34,7 @@ import com.example.geometka.auth.AppSession
 import com.example.geometka.helpers.LocationHelper
 import com.example.geometka.maps.MapAvailability
 import com.example.geometka.maps.MapDownloadRunner
+import com.example.geometka.maps.MapDownloadScheduler
 import com.example.geometka.maps.MapStorage
 import com.example.geometka.ui.ScreenChrome
 import org.mapsforge.core.model.BoundingBox
@@ -80,6 +81,7 @@ class MainActivity : Activity() {
     private var preferredMapCenter: LatLong? = null
     private var hasCenteredOnCurrentLocation = false
     private var directMapDownloadRunning = false
+    private var directMapAssignmentChecked = false
 
     private object Colors {
         const val GREEN_DARK = "#0B2A18"
@@ -215,6 +217,7 @@ class MainActivity : Activity() {
     }
 
     private fun logout() {
+        MapDownloadScheduler.stopDownloads(this)
         AppSession.lock(this)
         val intent = Intent(this, LoginActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -727,7 +730,7 @@ class MainActivity : Activity() {
     }
 
     private fun startDirectMapDownloadIfNeeded() {
-        if (!directMapDownloadRunning) {
+        if (!directMapDownloadRunning && !directMapAssignmentChecked) {
             startDirectMapDownload(force = false)
         }
     }
@@ -736,6 +739,7 @@ class MainActivity : Activity() {
         if (directMapDownloadRunning && !force) return
 
         directMapDownloadRunning = true
+        directMapAssignmentChecked = true
 
         Thread {
             runCatching {

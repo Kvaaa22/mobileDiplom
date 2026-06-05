@@ -54,4 +54,9 @@ object MapDownloadScheduler {
             downloadRequest
         )
     }
+
+    fun stopDownloads(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork("MapDownloadForce")
+    }
 }

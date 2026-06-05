@@ -12,7 +12,8 @@ import java.net.URI
 import java.net.URL
 
 class MapAssignmentClient(
-    private val context: Context
+    private val context: Context,
+    private val accessToken: String? = AppSession.getAccessToken(context)
 ) {
 
     companion object {
@@ -20,31 +21,31 @@ class MapAssignmentClient(
     }
 
     fun fetchAssignedPackage(): MapPackage? {
-        val deviceId = DeviceIdentity.getDeviceId(context)
-        val urlText = "${ApiConfig.BASE_URL}/api/mobile/map-assignment?deviceId=$deviceId"
+        val accountKey = AppSession.getAccountKey(context) ?: return null
+        val token = accessToken ?: return null
+        val urlText = "${ApiConfig.BASE_URL}/api/mobile/map-assignment"
         val connection = URL(urlText).openConnection() as HttpURLConnection
 
         return try {
             MapDownloadDiagnostics.record(
                 context = context,
                 stage = "Requesting map assignment",
-                detail = "deviceId=$deviceId",
+                detail = "account=$accountKey",
                 url = urlText
             )
 
             connection.requestMethod = "GET"
             connection.connectTimeout = 15_000
             connection.readTimeout = 15_000
-            connection.setRequestProperty("X-Device-Id", deviceId)
             connection.setRequestProperty("X-App-Client-Token", APP_CLIENT_TOKEN)
-            setAuthHeader(connection)
+            connection.setRequestProperty("Authorization", "Bearer $token")
 
             when (connection.responseCode) {
                 HttpURLConnection.HTTP_NO_CONTENT -> {
                     MapDownloadDiagnostics.record(
                         context = context,
                         stage = "No map assignment",
-                        detail = "HTTP 204 for deviceId=$deviceId",
+                        detail = "HTTP 204 for account=$accountKey",
                         url = urlText
                     )
                     null
@@ -54,7 +55,7 @@ class MapAssignmentClient(
                     MapDownloadDiagnostics.record(
                         context = context,
                         stage = "Map assignment not found",
-                        detail = "HTTP 404 for deviceId=$deviceId",
+                        detail = "HTTP 404 for account=$accountKey",
                         url = urlText
                     )
                     null
@@ -207,8 +208,8 @@ class MapAssignmentClient(
     }
 
     private fun setAuthHeader(connection: HttpURLConnection) {
-        val accessToken = AppSession.getAccessToken(context) ?: return
-        connection.setRequestProperty("Authorization", "Bearer $accessToken")
+        val token = accessToken ?: return
+        connection.setRequestProperty("Authorization", "Bearer $token")
     }
 
     private fun normalizeLocalServerUrl(rawUrl: String): String {
@@ -236,4 +237,5 @@ class MapAssignmentClient(
             rawUrl
         }
     }
+
 }

@@ -5,8 +5,9 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.example.geometka.auth.AppSession
 
-class MarkDatabase(context: Context) : SQLiteOpenHelper(
+class MarkDatabase(private val context: Context) : SQLiteOpenHelper(
     context,
     DATABASE_NAME,
     null,
@@ -15,11 +16,12 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "geometka.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
 
         private const val TABLE_MARKS = "marks"
 
         private const val COLUMN_ID = "id"
+        private const val COLUMN_OWNER_ACCOUNT = "owner_account"
         private const val COLUMN_MAP_ID = "map_id"
         private const val COLUMN_NAME = "name"
         private const val COLUMN_LATITUDE = "latitude"
@@ -38,6 +40,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         val createTable = """
             CREATE TABLE $TABLE_MARKS (
                 $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                $COLUMN_OWNER_ACCOUNT TEXT NOT NULL,
                 $COLUMN_MAP_ID INTEGER,
                 $COLUMN_NAME TEXT NOT NULL,
                 $COLUMN_LATITUDE REAL NOT NULL,
@@ -75,12 +78,29 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, COLUMN_ACCURACY, "REAL")
         addColumnIfMissing(db, COLUMN_SYNC_STATUS, "TEXT NOT NULL DEFAULT '${SyncStatus.LOCAL.name}'")
         addColumnIfMissing(db, COLUMN_VERIFICATION_STATUS, "TEXT NOT NULL DEFAULT '${VerificationStatus.UNVERIFIED.name}'")
+        addColumnIfMissing(db, COLUMN_OWNER_ACCOUNT, "TEXT NOT NULL DEFAULT ''")
+
+        val accountKey = AppSession.getAccountKey(context)
+        if (accountKey != null) {
+            val values = ContentValues().apply {
+                put(COLUMN_OWNER_ACCOUNT, accountKey)
+            }
+            db.update(
+                TABLE_MARKS,
+                values,
+                "$COLUMN_OWNER_ACCOUNT = ?",
+                arrayOf("")
+            )
+        }
     }
 
     fun insertMark(mark: Mark): Long {
+        val accountKey = currentAccountKey() ?: return -1L
         val db = writableDatabase
 
         val values = ContentValues().apply {
+            put(COLUMN_OWNER_ACCOUNT, accountKey)
+
             if (mark.mapId != null) {
                 put(COLUMN_MAP_ID, mark.mapId)
             } else {
@@ -110,14 +130,15 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun getAllMarks(): List<Mark> {
+        val accountKey = currentAccountKey() ?: return emptyList()
         val marks = mutableListOf<Mark>()
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MARKS,
             null,
-            null,
-            null,
+            "$COLUMN_OWNER_ACCOUNT = ?",
+            arrayOf(accountKey),
             null,
             null,
             "$COLUMN_CREATED_AT DESC"
@@ -133,14 +154,15 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun getMarksByMapId(mapId: Long): List<Mark> {
+        val accountKey = currentAccountKey() ?: return emptyList()
         val marks = mutableListOf<Mark>()
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MARKS,
             null,
-            "$COLUMN_MAP_ID = ?",
-            arrayOf(mapId.toString()),
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_MAP_ID = ?",
+            arrayOf(accountKey, mapId.toString()),
             null,
             null,
             "$COLUMN_CREATED_AT DESC"
@@ -156,13 +178,14 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun getMarkById(id: Long): Mark? {
+        val accountKey = currentAccountKey() ?: return null
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MARKS,
             null,
-            "$COLUMN_ID = ?",
-            arrayOf(id.toString()),
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_ID = ?",
+            arrayOf(accountKey, id.toString()),
             null,
             null,
             null
@@ -178,14 +201,15 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun getUnsyncedMarks(): List<Mark> {
+        val accountKey = currentAccountKey() ?: return emptyList()
         val marks = mutableListOf<Mark>()
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MARKS,
             null,
-            "$COLUMN_SYNC_STATUS IN (?, ?)",
-            arrayOf(SyncStatus.LOCAL.name, SyncStatus.PENDING.name),
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_SYNC_STATUS IN (?, ?)",
+            arrayOf(accountKey, SyncStatus.LOCAL.name, SyncStatus.PENDING.name),
             null,
             null,
             "$COLUMN_CREATED_AT ASC"
@@ -204,6 +228,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         id: Long,
         syncStatus: SyncStatus
     ): Int {
+        val accountKey = currentAccountKey() ?: return 0
         val db = writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_SYNC_STATUS, syncStatus.name)
@@ -212,8 +237,8 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         return db.update(
             TABLE_MARKS,
             values,
-            "$COLUMN_ID = ?",
-            arrayOf(id.toString())
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_ID = ?",
+            arrayOf(accountKey, id.toString())
         )
     }
 
@@ -221,6 +246,7 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         id: Long,
         verificationStatus: VerificationStatus
     ): Int {
+        val accountKey = currentAccountKey() ?: return 0
         val db = writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_VERIFICATION_STATUS, verificationStatus.name)
@@ -229,12 +255,13 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         return db.update(
             TABLE_MARKS,
             values,
-            "$COLUMN_ID = ?",
-            arrayOf(id.toString())
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_ID = ?",
+            arrayOf(accountKey, id.toString())
         )
     }
 
     fun updateMark(mark: Mark): Int {
+        val accountKey = currentAccountKey() ?: return 0
         val db = writableDatabase
 
         val values = ContentValues().apply {
@@ -265,15 +292,22 @@ class MarkDatabase(context: Context) : SQLiteOpenHelper(
         return db.update(
             TABLE_MARKS,
             values,
-            "$COLUMN_ID = ?",
-            arrayOf(mark.id.toString())
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_ID = ?",
+            arrayOf(accountKey, mark.id.toString())
         )
     }
 
     fun deleteMark(id: Long): Int {
+        val accountKey = currentAccountKey() ?: return 0
         val db = writableDatabase
-        return db.delete(TABLE_MARKS, "$COLUMN_ID = ?", arrayOf(id.toString()))
+        return db.delete(
+            TABLE_MARKS,
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_ID = ?",
+            arrayOf(accountKey, id.toString())
+        )
     }
+
+    private fun currentAccountKey(): String? = AppSession.getAccountKey(context)
 
     private fun cursorToMark(cursor: Cursor): Mark {
         return Mark(

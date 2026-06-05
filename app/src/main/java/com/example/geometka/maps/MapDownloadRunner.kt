@@ -1,14 +1,19 @@
 package com.example.geometka.maps
 
 import android.content.Context
+import com.example.geometka.auth.AppSession
 import java.io.File
 
 object MapDownloadRunner {
 
     fun download(context: Context) {
         val appContext = context.applicationContext
-        val database = MapPackageDatabase(appContext)
-        val client = MapAssignmentClient(appContext)
+        val accountKey = AppSession.getAccountKey(appContext) ?: return
+        val database = MapPackageDatabase(appContext, accountKey)
+        val client = MapAssignmentClient(
+            context = appContext,
+            accessToken = AppSession.getAccessToken(appContext)
+        )
         var assignedPackage: MapPackage? = null
 
         try {
@@ -19,7 +24,13 @@ object MapDownloadRunner {
             )
 
             assignedPackage = client.fetchAssignedPackage()
-                ?: return
+            ensureSessionUnchanged(appContext, accountKey)
+
+            if (assignedPackage == null) {
+                database.clearAssignments()
+                AppSession.markMapAssignmentChecked(appContext, accountKey)
+                return
+            }
 
             MapDownloadDiagnostics.record(
                 context = appContext,
@@ -41,12 +52,26 @@ object MapDownloadRunner {
                         File(existingPackage.localPath).exists()
 
             if (alreadyDownloaded) {
+                AppSession.markMapAssignmentChecked(appContext, accountKey)
                 MapDownloadDiagnostics.record(
                     context = appContext,
                     stage = "Map already downloaded",
                     detail = existingPackage.localPath.orEmpty(),
                     progressPercent = 100
                 )
+                return
+            }
+
+            if (finalFile.exists() && finalFile.length() > 0L) {
+                database.upsertAssignedPackage(
+                    assignedPackage.copy(
+                        localPath = finalFile.absolutePath,
+                        status = MapPackageStatus.DOWNLOADED,
+                        downloadedAt = System.currentTimeMillis(),
+                        lastError = "Reused cached map file"
+                    )
+                )
+                AppSession.markMapAssignmentChecked(appContext, accountKey)
                 return
             }
 
@@ -73,6 +98,7 @@ object MapDownloadRunner {
                 mapPackage = assignedPackage,
                 tempFile = tempFile
             )
+            ensureSessionUnchanged(appContext, accountKey)
 
             verifyDownloadedFile(
                 mapPackage = assignedPackage,
@@ -107,6 +133,7 @@ object MapDownloadRunner {
                 downloadedAt = System.currentTimeMillis(),
                 lastError = "Downloaded successfully"
             )
+            AppSession.markMapAssignmentChecked(appContext, accountKey)
 
             MapDownloadDiagnostics.record(
                 context = appContext,
@@ -134,6 +161,12 @@ object MapDownloadRunner {
             }
 
             throw e
+        }
+    }
+
+    private fun ensureSessionUnchanged(context: Context, accountKey: String) {
+        if (AppSession.getAccountKey(context) != accountKey) {
+            throw IllegalStateException("Account changed during map download")
         }
     }
 

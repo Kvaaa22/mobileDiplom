@@ -5,16 +5,21 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.example.geometka.auth.AppSession
 
-class MapPackageDatabase(context: Context) :
+class MapPackageDatabase(
+    private val context: Context,
+    private val ownerAccount: String? = AppSession.getAccountKey(context)
+) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "map_packages.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 4
 
         private const val TABLE_MAP_PACKAGES = "map_packages"
 
+        private const val COLUMN_OWNER_ACCOUNT = "owner_account"
         private const val COLUMN_REMOTE_ID = "remote_id"
         private const val COLUMN_NAME = "name"
         private const val COLUMN_VERSION = "version"
@@ -31,7 +36,8 @@ class MapPackageDatabase(context: Context) :
         db.execSQL(
             """
             CREATE TABLE $TABLE_MAP_PACKAGES (
-                $COLUMN_REMOTE_ID INTEGER PRIMARY KEY,
+                $COLUMN_OWNER_ACCOUNT TEXT NOT NULL,
+                $COLUMN_REMOTE_ID INTEGER NOT NULL,
                 $COLUMN_NAME TEXT NOT NULL,
                 $COLUMN_VERSION INTEGER NOT NULL,
                 $COLUMN_DOWNLOAD_URL TEXT NOT NULL,
@@ -40,7 +46,8 @@ class MapPackageDatabase(context: Context) :
                 $COLUMN_LOCAL_PATH TEXT,
                 $COLUMN_STATUS TEXT NOT NULL,
                 $COLUMN_DOWNLOADED_AT INTEGER,
-                $COLUMN_LAST_ERROR TEXT
+                $COLUMN_LAST_ERROR TEXT,
+                PRIMARY KEY ($COLUMN_OWNER_ACCOUNT, $COLUMN_REMOTE_ID)
             )
             """.trimIndent()
         )
@@ -53,13 +60,52 @@ class MapPackageDatabase(context: Context) :
     ) {
         if (!tableExists(db, TABLE_MAP_PACKAGES)) {
             onCreate(db)
+            return
+        }
+
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE $TABLE_MAP_PACKAGES RENAME TO ${TABLE_MAP_PACKAGES}_legacy")
+            onCreate(db)
+
+            val accountKey = ownerAccount
+            if (accountKey != null) {
+                db.execSQL(
+                    """
+                    INSERT INTO $TABLE_MAP_PACKAGES (
+                        $COLUMN_OWNER_ACCOUNT,
+                        $COLUMN_REMOTE_ID,
+                        $COLUMN_NAME,
+                        $COLUMN_VERSION,
+                        $COLUMN_DOWNLOAD_URL,
+                        $COLUMN_CHECKSUM_SHA256,
+                        $COLUMN_FILE_SIZE_BYTES,
+                        $COLUMN_LOCAL_PATH,
+                        $COLUMN_STATUS,
+                        $COLUMN_DOWNLOADED_AT,
+                        $COLUMN_LAST_ERROR
+                    )
+                    SELECT ?, remote_id, name, version, download_url, checksum_sha256,
+                           file_size_bytes, local_path, status, downloaded_at, last_error
+                    FROM ${TABLE_MAP_PACKAGES}_legacy
+                    """.trimIndent(),
+                    arrayOf(accountKey)
+                )
+            }
+
+            db.execSQL("DROP TABLE ${TABLE_MAP_PACKAGES}_legacy")
+        }
+
+        if (oldVersion < 4) {
+            db.delete(TABLE_MAP_PACKAGES, null, null)
         }
     }
 
     fun upsertAssignedPackage(mapPackage: MapPackage) {
+        val accountKey = ownerAccount ?: return
         val db = writableDatabase
 
         val values = ContentValues().apply {
+            put(COLUMN_OWNER_ACCOUNT, accountKey)
             put(COLUMN_REMOTE_ID, mapPackage.remoteId)
             put(COLUMN_NAME, mapPackage.name)
             put(COLUMN_VERSION, mapPackage.version)
@@ -81,13 +127,14 @@ class MapPackageDatabase(context: Context) :
     }
 
     fun getPackageByRemoteId(remoteId: Long): MapPackage? {
+        val accountKey = ownerAccount ?: return null
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MAP_PACKAGES,
             null,
-            "$COLUMN_REMOTE_ID = ?",
-            arrayOf(remoteId.toString()),
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_REMOTE_ID = ?",
+            arrayOf(accountKey, remoteId.toString()),
             null,
             null,
             null
@@ -103,13 +150,14 @@ class MapPackageDatabase(context: Context) :
     }
 
     fun getDownloadedPackage(): MapPackage? {
+        val accountKey = ownerAccount ?: return null
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MAP_PACKAGES,
             null,
-            "$COLUMN_STATUS = ?",
-            arrayOf(MapPackageStatus.DOWNLOADED.name),
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_STATUS = ?",
+            arrayOf(accountKey, MapPackageStatus.DOWNLOADED.name),
             null,
             null,
             "$COLUMN_DOWNLOADED_AT DESC",
@@ -126,13 +174,14 @@ class MapPackageDatabase(context: Context) :
     }
 
     fun getLatestPackage(): MapPackage? {
+        val accountKey = ownerAccount ?: return null
         val db = readableDatabase
 
         val cursor = db.query(
             TABLE_MAP_PACKAGES,
             null,
-            null,
-            null,
+            "$COLUMN_OWNER_ACCOUNT = ?",
+            arrayOf(accountKey),
             null,
             null,
             "$COLUMN_DOWNLOADED_AT DESC, $COLUMN_REMOTE_ID DESC",
@@ -155,6 +204,7 @@ class MapPackageDatabase(context: Context) :
         downloadedAt: Long? = null,
         lastError: String? = null
     ) {
+        val accountKey = ownerAccount ?: return
         val db = writableDatabase
 
         val values = ContentValues().apply {
@@ -176,8 +226,17 @@ class MapPackageDatabase(context: Context) :
         db.update(
             TABLE_MAP_PACKAGES,
             values,
-            "$COLUMN_REMOTE_ID = ?",
-            arrayOf(remoteId.toString())
+            "$COLUMN_OWNER_ACCOUNT = ? AND $COLUMN_REMOTE_ID = ?",
+            arrayOf(accountKey, remoteId.toString())
+        )
+    }
+
+    fun clearAssignments() {
+        val accountKey = ownerAccount ?: return
+        writableDatabase.delete(
+            TABLE_MAP_PACKAGES,
+            "$COLUMN_OWNER_ACCOUNT = ?",
+            arrayOf(accountKey)
         )
     }
 

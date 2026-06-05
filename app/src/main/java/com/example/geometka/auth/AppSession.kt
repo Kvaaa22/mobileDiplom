@@ -10,6 +10,7 @@ object AppSession {
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
     private const val KEY_USER_ID = "user_id"
+    private const val KEY_MAP_ASSIGNMENT_CHECKED_ACCOUNT = "map_assignment_checked_account"
 
     fun unlock(
         context: Context,
@@ -54,6 +55,29 @@ object AppSession {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_USER_ID, null)
             ?.takeIf { it.isNotBlank() }
+    }
+
+    fun getAccountKey(context: Context): String? {
+        if (!isUnlocked(context)) return null
+
+        return getUserId(context)
+            ?.let { "user:$it" }
+            ?: getUsername(context)
+                .takeIf { it.isNotBlank() && it != "Guest" }
+                ?.let { "username:$it" }
+    }
+
+    fun markMapAssignmentChecked(context: Context, accountKey: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_MAP_ASSIGNMENT_CHECKED_ACCOUNT, accountKey)
+            .apply()
+    }
+
+    fun isMapAssignmentChecked(context: Context): Boolean {
+        val accountKey = getAccountKey(context) ?: return false
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_MAP_ASSIGNMENT_CHECKED_ACCOUNT, null) == accountKey
     }
 
     fun lock(context: Context) {
