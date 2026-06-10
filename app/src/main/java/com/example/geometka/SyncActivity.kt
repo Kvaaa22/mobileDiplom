@@ -17,9 +17,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.example.geometka.api.MarkSyncClient
+import com.example.geometka.api.SessionExpiredException
+import com.example.geometka.api.UserBlockedException
 import com.example.geometka.data.MarkDatabase
 import com.example.geometka.data.SyncStatus
-import com.example.geometka.maps.DeviceIdentity
 import com.example.geometka.ui.ScreenChrome
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -101,7 +102,7 @@ class SyncActivity : Activity() {
 
         contentLayout.addView(createStatusCard())
         contentLayout.addView(createNextSyncCard())
-        contentLayout.addView(createMainButton("Повторить отправку", Colors.GREEN) {
+        contentLayout.addView(createMainButton("Синхронизировать", Colors.GREEN) {
             startMarksSync()
         })
 
@@ -244,13 +245,6 @@ class SyncActivity : Activity() {
         }
 
         container.addView(nextSyncText)
-
-        container.addView(TextView(this).apply {
-            text = "ID устройства: ${DeviceIdentity.getDeviceId(this@SyncActivity)}"
-            textSize = 11f
-            setTextColor(Color.parseColor(Colors.TEXT_MUTED))
-            setPadding(0, dp(8), 0, 0)
-        })
 
         return container
     }
@@ -496,11 +490,13 @@ class SyncActivity : Activity() {
                     progressBar.progress = 0
                     addLog("Ошибка синхронизации: ${error.message ?: "неизвестная ошибка"}")
                     refreshData()
-                    Toast.makeText(
-                        this,
-                        "Ошибка синхронизации",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    if (error !is SessionExpiredException && error !is UserBlockedException) {
+                        Toast.makeText(
+                            this,
+                            "Ошибка синхронизации",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }.start()

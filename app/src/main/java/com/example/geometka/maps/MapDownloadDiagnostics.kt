@@ -12,7 +12,6 @@ object MapDownloadDiagnostics {
     private const val KEY_STAGE = "stage"
     private const val KEY_DETAIL = "detail"
     private const val KEY_UPDATED_AT = "updated_at"
-    private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_URL = "url"
     private const val KEY_PROGRESS_PERCENT = "progress_percent"
     private const val KEY_DOWNLOADED_BYTES = "downloaded_bytes"
@@ -22,7 +21,6 @@ object MapDownloadDiagnostics {
         val stage: String,
         val detail: String,
         val updatedAt: Long,
-        val deviceId: String,
         val url: String,
         val progressPercent: Int,
         val downloadedBytes: Long,
@@ -43,7 +41,6 @@ object MapDownloadDiagnostics {
             .putString(KEY_STAGE, stage)
             .putString(KEY_DETAIL, detail)
             .putLong(KEY_UPDATED_AT, System.currentTimeMillis())
-            .putString(KEY_DEVICE_ID, DeviceIdentity.getDeviceId(context))
             .putString(KEY_URL, url)
             .putInt(KEY_PROGRESS_PERCENT, progressPercent)
             .putLong(KEY_DOWNLOADED_BYTES, downloadedBytes)
@@ -58,7 +55,6 @@ object MapDownloadDiagnostics {
             stage = prefs.getString(KEY_STAGE, "Загрузка карты еще не запускалась") ?: "",
             detail = prefs.getString(KEY_DETAIL, "") ?: "",
             updatedAt = prefs.getLong(KEY_UPDATED_AT, 0L),
-            deviceId = prefs.getString(KEY_DEVICE_ID, DeviceIdentity.getDeviceId(context)) ?: "",
             url = prefs.getString(KEY_URL, "${ApiConfig.BASE_URL}/api/mobile/map-assignment") ?: "",
             progressPercent = prefs.getInt(KEY_PROGRESS_PERCENT, -1),
             downloadedBytes = prefs.getLong(KEY_DOWNLOADED_BYTES, 0L),

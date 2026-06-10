@@ -8,43 +8,20 @@ class AuthApiClient {
 
     data class LoginResult(
         val accessToken: String,
-        val refreshToken: String?,
-        val username: String?,
-        val userId: String?
+        val username: String?
     )
 
     fun login(
         login: String,
-        password: String,
-        deviceId: String
+        password: String
     ): LoginResult {
-        val endpoint = URL("${ApiConfig.BASE_URL}/api/mobile/auth/login")
-        val fieldNames = listOf("login", "username", "email")
-        var lastError: Exception? = null
-
-        fieldNames.forEach { fieldName ->
-            try {
-                return executeLogin(
-                    fieldName = fieldName,
-                    login = login,
-                    password = password,
-                    deviceId = deviceId,
-                    url = endpoint,
-                    redirectCount = 0
-                )
-            } catch (e: Exception) {
-                lastError = e
-            }
-        }
-
-        throw lastError ?: IllegalStateException("Login failed")
+        val endpoint = URL("${ApiConfig.BASE_URL}${ApiContract.LOGIN_PATH}")
+        return executeLogin(login, password, endpoint, 0)
     }
 
     private fun executeLogin(
-        fieldName: String,
         login: String,
         password: String,
-        deviceId: String,
         url: URL,
         redirectCount: Int
     ): LoginResult {
@@ -55,11 +32,7 @@ class AuthApiClient {
         val connection = url.openConnection() as HttpURLConnection
 
         return try {
-            val requestBody = JSONObject()
-                .put(fieldName, login)
-                .put("password", password)
-                .put("deviceId", deviceId)
-                .toString()
+            val requestBody = ApiContract.loginBody(login, password).toString()
 
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
@@ -79,7 +52,7 @@ class AuthApiClient {
                 val location = connection.getHeaderField("Location")
                     ?: throw IllegalStateException("Server returned redirect $responseCode without Location")
                 val redirectedUrl = URL(url, location)
-                return executeLogin(fieldName, login, password, deviceId, redirectedUrl, redirectCount + 1)
+                return executeLogin(login, password, redirectedUrl, redirectCount + 1)
             }
 
             val responseText = if (responseCode in 200..299) {
@@ -89,6 +62,9 @@ class AuthApiClient {
             }
 
             if (responseCode !in 200..299) {
+                if (responseCode == HttpURLConnection.HTTP_FORBIDDEN) {
+                    throw IllegalStateException("Пользователь заблокирован")
+                }
                 throw IllegalStateException(readErrorMessage(responseText, responseCode))
             }
 
@@ -110,15 +86,10 @@ class AuthApiClient {
 
         return LoginResult(
             accessToken = accessToken,
-            refreshToken = obj.optString("refreshToken")
-                .ifBlank { obj.optString("refresh_token") }
-                .ifBlank { null },
-            username = obj.optString("username")
+            username = obj.optString("userName")
+                .ifBlank { obj.optString("username") }
                 .ifBlank { obj.optString("name") }
                 .ifBlank { obj.optString("login") }
-                .ifBlank { null },
-            userId = obj.optString("userId")
-                .ifBlank { obj.optString("id") }
                 .ifBlank { null }
         )
     }

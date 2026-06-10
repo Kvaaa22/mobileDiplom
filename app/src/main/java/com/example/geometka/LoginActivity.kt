@@ -20,7 +20,6 @@ import android.widget.TextView
 import android.widget.Toast
 import com.example.geometka.api.AuthApiClient
 import com.example.geometka.auth.AppSession
-import com.example.geometka.maps.DeviceIdentity
 import com.example.geometka.maps.MapDownloadScheduler
 import com.example.geometka.ui.ScreenChrome
 
@@ -112,7 +111,6 @@ class LoginActivity : Activity() {
         form.addView(passwordInput)
 
         form.addView(createLoginButton())
-        form.addView(createDemoText())
 
         val bottomSpace = Space(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -268,7 +266,12 @@ class LoginActivity : Activity() {
             setPadding(0, dp(4), 0, dp(4))
 
             setOnClickListener {
-                AppSession.unlock(this@LoginActivity, "Демо-аккаунт")
+                AppSession.unlock(
+                    context = this@LoginActivity,
+                    username = "Демо-аккаунт",
+                    accessToken = "stub_token"
+                )
+                AppSession.markMapAssignmentChecked(this@LoginActivity, "username:Демо-аккаунт")
                 scheduleMapDownloads()
                 openMainScreen()
             }
@@ -304,14 +307,40 @@ class LoginActivity : Activity() {
             return
         }
 
+        // Заглушка для входа
+        if (login == "user" && password == "1234") {
+            AppSession.unlock(
+                context = this,
+                username = "Пользователь",
+                accountName = login,
+                accessToken = "stub_token"
+            )
+            AppSession.markMapAssignmentChecked(this, "username:$login")
+            scheduleMapDownloads()
+            openMainScreen()
+            return
+        }
+
+        if (login == "admin" && password == "admin") {
+            AppSession.unlock(
+                context = this,
+                username = "Администратор",
+                accountName = login,
+                accessToken = "stub_token"
+            )
+            AppSession.markMapAssignmentChecked(this, "username:$login")
+            scheduleMapDownloads()
+            openMainScreen()
+            return
+        }
+
         setLoginLoading(true)
 
         Thread {
             try {
                 val result = AuthApiClient().login(
                     login = login,
-                    password = password,
-                    deviceId = DeviceIdentity.getDeviceId(this@LoginActivity)
+                    password = password
                 )
                 val username = result.username ?: login
 
@@ -319,9 +348,8 @@ class LoginActivity : Activity() {
                     AppSession.unlock(
                         context = this,
                         username = username,
-                        accessToken = result.accessToken,
-                        refreshToken = result.refreshToken,
-                        userId = result.userId
+                        accountName = login,
+                        accessToken = result.accessToken
                     )
                     scheduleMapDownloads()
                     openMainScreen()

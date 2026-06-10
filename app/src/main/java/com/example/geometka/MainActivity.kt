@@ -50,9 +50,6 @@ import org.mapsforge.map.layer.renderer.TileRendererLayer
 import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.InternalRenderTheme
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 
 class MainActivity : Activity() {
@@ -72,8 +69,10 @@ class MainActivity : Activity() {
     private var tileRendererLayer: TileRendererLayer? = null
 
     private val markLayers = mutableListOf<Marker>()
+    private var selectedMarkMarker: Marker? = null
     private var currentLocationMarker: Marker? = null
     private var markInfoBubble: TextView? = null
+    private var selectedMarkId: Long? = null
 
     private var currentLatitude: Double? = null
     private var currentLongitude: Double? = null
@@ -485,6 +484,23 @@ class MainActivity : Activity() {
 
         tileRendererLayer = rendererLayer
         view.layerManager.layers.add(rendererLayer)
+        view.layerManager.layers.add(object : org.mapsforge.map.layer.Layer() {
+            override fun draw(
+                boundingBox: BoundingBox?,
+                zoomLevel: Byte,
+                canvas: org.mapsforge.core.graphics.Canvas?,
+                topLeftPoint: org.mapsforge.core.model.Point?
+            ) = Unit
+
+            override fun onTap(
+                tapLatLong: LatLong?,
+                layerXY: org.mapsforge.core.model.Point?,
+                tapXY: org.mapsforge.core.model.Point?
+            ): Boolean {
+                hideMarkInfoBubble()
+                return false
+            }
+        })
 
         view.model.mapViewPosition.setMapLimit(boundingBox)
         view.model.mapViewPosition.setCenter(resolveInitialMapCenter(boundingBox))
@@ -803,9 +819,11 @@ class MainActivity : Activity() {
 
     private fun showMarkInfoBubble(mark: Mark, anchorX: Float, anchorY: Float) {
         hideMarkInfoBubble()
+        selectedMarkId = mark.id
+        showSelectedMark(mark)
 
         val bubble = TextView(this).apply {
-            text = "ID: ${mark.id}\n${mark.pointType.label}\n${mark.verificationStatus.label}\n${mark.getFormattedDate().substringAfter(" ")}"
+            text = buildMarkInfoText(mark)
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor(Colors.TEXT_PRIMARY))
@@ -817,18 +835,44 @@ class MainActivity : Activity() {
             )
             setPadding(dp(10), dp(7), dp(10), dp(7))
             elevation = dp(6).toFloat()
-
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = anchorX.toInt().coerceAtLeast(dp(8)) + dp(12)
-                topMargin = (anchorY.toInt() - dp(46)).coerceAtLeast(dp(8))
-            }
+            maxWidth = (mapContainer.width - dp(16)).coerceAtLeast(dp(160))
         }
 
         markInfoBubble = bubble
         mapContainer.addView(bubble)
+        bubble.post {
+            if (markInfoBubble !== bubble) return@post
+
+            val edgePadding = dp(8)
+            val markerGap = dp(12)
+            val bubbleWidth = bubble.width
+            val bubbleHeight = bubble.height
+
+            val left = if (anchorX + markerGap + bubbleWidth <= mapContainer.width - edgePadding) {
+                anchorX.toInt() + markerGap
+            } else {
+                anchorX.toInt() - markerGap - bubbleWidth
+            }.coerceIn(edgePadding, (mapContainer.width - bubbleWidth - edgePadding).coerceAtLeast(edgePadding))
+
+            val top = if (anchorY - markerGap - bubbleHeight >= edgePadding) {
+                anchorY.toInt() - markerGap - bubbleHeight
+            } else {
+                anchorY.toInt() + markerGap
+            }.coerceIn(edgePadding, (mapContainer.height - bubbleHeight - edgePadding).coerceAtLeast(edgePadding))
+
+            bubble.layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = left
+                topMargin = top
+            }
+        }
+    }
+
+    private fun buildMarkInfoText(mark: Mark): String {
+        val displayName = mark.name.replace(Regex("""\s\d{2}:\d{2}$"""), "")
+        return "$displayName\n${mark.pointType.label} · ${mark.intensity.label}\n${mark.getFormattedDate()}"
     }
 
     private fun hideMarkInfoBubble() {
@@ -836,6 +880,38 @@ class MainActivity : Activity() {
             mapContainer.removeView(bubble)
         }
         markInfoBubble = null
+        selectedMarkId = null
+        removeSelectedMark()
+    }
+
+    private fun showSelectedMark(mark: Mark) {
+        val map = mapView ?: return
+        removeSelectedMark()
+
+        selectedMarkMarker = Marker(
+            LatLong(mark.latitude, mark.longitude),
+            createCircleBitmap(
+                fillColor = colorForMark(mark),
+                sizePx = dp(28),
+                borderColor = borderColorForMark(mark),
+                selected = true
+            ),
+            0,
+            -dp(14)
+        ).also { marker ->
+            map.layerManager.layers.add(marker)
+        }
+        bringCurrentLocationMarkerToFront()
+        map.invalidate()
+    }
+
+    private fun removeSelectedMark() {
+        val map = mapView
+        selectedMarkMarker?.let { marker ->
+            map?.layerManager?.layers?.remove(marker)
+        }
+        selectedMarkMarker = null
+        map?.invalidate()
     }
 
     private fun setupCallbacks() {
@@ -931,6 +1007,7 @@ class MainActivity : Activity() {
             map.layerManager.layers.remove(marker)
         }
         markLayers.clear()
+        removeSelectedMark()
 
         val marks = database.getAllMarks()
         pointsInfoText.text = "Сохраненных точек: ${marks.size}"
@@ -951,6 +1028,10 @@ class MainActivity : Activity() {
                     layerXY: org.mapsforge.core.model.Point?,
                     tapXY: org.mapsforge.core.model.Point?
                 ): Boolean {
+                    if (layerXY == null || tapXY == null || !contains(layerXY, tapXY)) {
+                        return false
+                    }
+
                     val x = tapXY?.x?.toFloat() ?: 0f
                     val y = tapXY?.y?.toFloat() ?: 0f
                     showMarkInfoBubble(mark, x, y)
@@ -1320,15 +1401,11 @@ class MainActivity : Activity() {
     }
 
     private fun buildPointName(pointType: PointType): String {
-        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-
-        val baseName = when (pointType) {
+        return when (pointType) {
             PointType.FRONT -> "Фронт пожара"
             PointType.FLANK -> "Фланг пожара"
             PointType.REAR -> "Тыл пожара"
         }
-
-        return "$baseName $time"
     }
 
     private fun checkPermissions() {
@@ -1383,6 +1460,8 @@ class MainActivity : Activity() {
         val map = mapView
 
         markLayers.clear()
+        selectedMarkMarker = null
+        selectedMarkId = null
         currentLocationMarker = null
         tileRendererLayer = null
 
@@ -1404,7 +1483,8 @@ class MainActivity : Activity() {
     private fun createCircleBitmap(
         fillColor: Int,
         sizePx: Int,
-        borderColor: Int = Color.WHITE
+        borderColor: Int = Color.WHITE,
+        selected: Boolean = false
     ): org.mapsforge.core.graphics.Bitmap {
         val androidBitmap = android.graphics.Bitmap.createBitmap(
             sizePx,
@@ -1415,7 +1495,7 @@ class MainActivity : Activity() {
         val canvas = Canvas(androidBitmap)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = borderColor
+            this.color = if (selected) Color.parseColor(Colors.BLUE) else borderColor
         }
 
         canvas.drawCircle(
@@ -1425,12 +1505,21 @@ class MainActivity : Activity() {
             paint
         )
 
-        paint.color = fillColor
+        if (selected) {
+            paint.color = borderColor
+            canvas.drawCircle(
+                sizePx / 2f,
+                sizePx / 2f,
+                sizePx * 0.38f,
+                paint
+            )
+        }
 
+        paint.color = fillColor
         canvas.drawCircle(
             sizePx / 2f,
             sizePx / 2f,
-            sizePx * 0.35f,
+            sizePx * if (selected) 0.27f else 0.35f,
             paint
         )
 
@@ -1520,11 +1609,13 @@ class MainActivity : Activity() {
 
                 if (dx * dx + dy * dy <= hitRadiusSquared) {
                     showMarkInfoBubble(pairedMarks[index], pointX, pointY)
+                    invalidate()
                     return true
                 }
             }
 
             hideMarkInfoBubble()
+            invalidate()
             return false
         }
 
@@ -1565,8 +1656,17 @@ class MainActivity : Activity() {
                 val y = point.second * height
                 val mark = marks.reversed().getOrNull(index)
 
-                whitePaint.color = mark?.let { borderColorForMark(it) } ?: Color.WHITE
-                canvas.drawCircle(x, y, dp(9).toFloat(), whitePaint)
+                val selected = mark?.id == selectedMarkId
+                whitePaint.color = if (selected) {
+                    Color.parseColor(Colors.BLUE)
+                } else {
+                    mark?.let { borderColorForMark(it) } ?: Color.WHITE
+                }
+                canvas.drawCircle(x, y, dp(if (selected) 11 else 9).toFloat(), whitePaint)
+                if (selected && mark != null) {
+                    whitePaint.color = borderColorForMark(mark)
+                    canvas.drawCircle(x, y, dp(8).toFloat(), whitePaint)
+                }
                 pointPaint.color = mark?.let { colorForMark(it) } ?: Color.parseColor(Colors.RED)
                 canvas.drawCircle(x, y, dp(6).toFloat(), pointPaint)
             }

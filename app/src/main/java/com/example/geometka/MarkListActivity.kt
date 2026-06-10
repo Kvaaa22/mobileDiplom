@@ -12,6 +12,8 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import com.example.geometka.api.MarkSyncClient
+import com.example.geometka.api.SessionExpiredException
+import com.example.geometka.api.UserBlockedException
 import com.example.geometka.data.FireIntensity
 import com.example.geometka.data.Mark
 import com.example.geometka.data.MarkDatabase
@@ -397,11 +399,13 @@ class MarkListActivity : Activity() {
                 runOnUiThread {
                     isSyncRunning = false
                     loadMarks()
-                    Toast.makeText(
-                        this,
-                        "Ошибка синхронизации: ${error.message ?: "неизвестная ошибка"}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    if (error !is SessionExpiredException && error !is UserBlockedException) {
+                        Toast.makeText(
+                            this,
+                            "Ошибка синхронизации: ${error.message ?: "неизвестная ошибка"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             }
         }.start()

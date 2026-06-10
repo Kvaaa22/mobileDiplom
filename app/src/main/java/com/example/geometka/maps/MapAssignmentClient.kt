@@ -2,7 +2,8 @@ package com.example.geometka.maps
 
 import android.content.Context
 import com.example.geometka.api.ApiConfig
-import com.example.geometka.auth.AppSession
+import com.example.geometka.api.ApiSessionHandler
+import com.example.geometka.api.AuthenticatedConnection
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -12,40 +13,35 @@ import java.net.URI
 import java.net.URL
 
 class MapAssignmentClient(
-    private val context: Context,
-    private val accessToken: String? = AppSession.getAccessToken(context)
+    private val context: Context
 ) {
 
-    companion object {
-        private const val APP_CLIENT_TOKEN = "demo-map-client-token"
-    }
-
     fun fetchAssignedPackage(): MapPackage? {
-        val accountKey = AppSession.getAccountKey(context) ?: return null
-        val token = accessToken ?: return null
-        val urlText = "${ApiConfig.BASE_URL}/api/mobile/map-assignment"
+        val urlText = "${ApiConfig.BASE_URL}${com.example.geometka.api.ApiContract.MAP_ASSIGNMENT_PATH}"
         val connection = URL(urlText).openConnection() as HttpURLConnection
 
         return try {
             MapDownloadDiagnostics.record(
                 context = context,
                 stage = "Requesting map assignment",
-                detail = "account=$accountKey",
+                detail = "Authorized user",
                 url = urlText
             )
 
             connection.requestMethod = "GET"
             connection.connectTimeout = 15_000
             connection.readTimeout = 15_000
-            connection.setRequestProperty("X-App-Client-Token", APP_CLIENT_TOKEN)
-            connection.setRequestProperty("Authorization", "Bearer $token")
+            AuthenticatedConnection.configure(context, connection)
 
-            when (connection.responseCode) {
+            val responseCode = connection.responseCode
+            ApiSessionHandler.handleResponse(context, responseCode)
+
+            when (responseCode) {
                 HttpURLConnection.HTTP_NO_CONTENT -> {
                     MapDownloadDiagnostics.record(
                         context = context,
                         stage = "No map assignment",
-                        detail = "HTTP 204 for account=$accountKey",
+                        detail = "HTTP 204 for authorized user",
                         url = urlText
                     )
                     null
@@ -55,7 +51,7 @@ class MapAssignmentClient(
                     MapDownloadDiagnostics.record(
                         context = context,
                         stage = "Map assignment not found",
-                        detail = "HTTP 404 for account=$accountKey",
+                        detail = "HTTP 404 for authorized user",
                         url = urlText
                     )
                     null
@@ -84,7 +80,7 @@ class MapAssignmentClient(
                         .take(180)
 
                     throw IllegalStateException(
-                        "Map assignment HTTP ${connection.responseCode}: $errorBody"
+                        "Map assignment HTTP $responseCode: $errorBody"
                     )
                 }
             }
@@ -111,11 +107,12 @@ class MapAssignmentClient(
             connection.requestMethod = "GET"
             connection.connectTimeout = 20_000
             connection.readTimeout = 60_000
-            connection.setRequestProperty("X-Device-Id", DeviceIdentity.getDeviceId(context))
-            connection.setRequestProperty("X-App-Client-Token", APP_CLIENT_TOKEN)
-            setAuthHeader(connection)
+            AuthenticatedConnection.configure(context, connection)
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            val responseCode = connection.responseCode
+            ApiSessionHandler.handleResponse(context, responseCode)
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
                 val errorBody = connection.errorStream
                     ?.bufferedReader()
                     ?.use { it.readText() }
@@ -123,7 +120,7 @@ class MapAssignmentClient(
                     .take(180)
 
                 throw IllegalStateException(
-                    "Map download HTTP ${connection.responseCode}: $errorBody"
+                    "Map download HTTP $responseCode: $errorBody"
                 )
             }
 
@@ -205,11 +202,6 @@ class MapAssignmentClient(
             downloadedAt = null,
             lastError = null
         )
-    }
-
-    private fun setAuthHeader(connection: HttpURLConnection) {
-        val token = accessToken ?: return
-        connection.setRequestProperty("Authorization", "Bearer $token")
     }
 
     private fun normalizeLocalServerUrl(rawUrl: String): String {

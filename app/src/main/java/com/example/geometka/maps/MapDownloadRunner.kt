@@ -10,10 +10,7 @@ object MapDownloadRunner {
         val appContext = context.applicationContext
         val accountKey = AppSession.getAccountKey(appContext) ?: return
         val database = MapPackageDatabase(appContext, accountKey)
-        val client = MapAssignmentClient(
-            context = appContext,
-            accessToken = AppSession.getAccessToken(appContext)
-        )
+        val client = MapAssignmentClient(appContext)
         var assignedPackage: MapPackage? = null
 
         try {
